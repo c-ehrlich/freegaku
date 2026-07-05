@@ -1,5 +1,7 @@
 # Freegaku
 
+![Freegaku on YouTube: subtitle sidebar with Japanese auto-generated captions, the current line highlighted, and a per-line ＋ button for mining to Anki](docs/screenshot.jpg)
+
 A Chrome (MV3) extension for mining Anki cards from **YouTube** and **Netflix**:
 a subtitle sidebar next to the video (works with real and auto-generated
 captions), click a line's **＋** to attach the sentence audio, a screenshot,
