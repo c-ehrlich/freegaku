@@ -104,7 +104,6 @@ apps/worker/     (future) CF Worker: yt-dlp-style audio grab + server-side ASR f
    cancels pre-capture) → `addNote` Basic in the 日本語 deck, Back = sentence +
    audio + image + origin, tagged `m2`. E2E-verified.
 5. **Polish** ✅: options page (padding, deck/note types, hotkeys), error surfaces.
-   (Worker fallback still open.)
 6. **Netflix** ✅: manifest interception (WebVTT profile + showAllSubDubTracks,
    rename-tolerant), player-API seek bridge + preciseSeeking hack, LR-style
    right sidebar (player shrunk via CSS), overlay, mining via tabCapture +
@@ -113,6 +112,12 @@ apps/worker/     (future) CF Worker: yt-dlp-style audio grab + server-side ASR f
    the activeTab permission tab capture requires (one press per browser
    session unlocks the ＋ buttons too). Verified live against real Netflix
    (ja CC track, episodic metadata in Origin). See docs/netflix.md.
+7. **Whisper generation** ✅: sidebar ✨ button generates subtitles for videos
+   without any — rolling 30s playback-capture chunks (captureStream / tabCapture)
+   → 16kHz WAV → apps/worker (local wrangler dev; OpenAI Whisper, MOCK_ASR test
+   mode) → progressive cues, cached per video, minable like any track. YouTube
+   fast mode (2x muted). Direct googlevideo audio download is NOT viable (GVS
+   POT enforcement — 403 on all InnerTube clients, verified 2026-07).
 
 ## Known risks
 
