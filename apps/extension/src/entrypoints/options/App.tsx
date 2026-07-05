@@ -4,7 +4,7 @@ import type { M2Settings, MineContent, NoteTypeMapping } from '../../lib/setting
 import { useAnki, useSettings } from './hooks';
 import type { AnkiData } from './hooks';
 
-const SECTIONS = ['Anki', 'Card mapping', 'Quick cards', 'Hotkeys', 'Capture'] as const;
+const SECTIONS = ['Anki', 'Card mapping', 'Quick cards', 'Whisper', 'Hotkeys', 'Capture'] as const;
 type Section = (typeof SECTIONS)[number];
 
 const CONTENT_LABELS: Record<MineContent, string> = {
@@ -56,6 +56,7 @@ export function App() {
         {section === 'Quick cards' && (
           <QuickCardsSection settings={settings} update={update} anki={anki} />
         )}
+        {section === 'Whisper' && <WhisperSection settings={settings} update={update} />}
         {section === 'Hotkeys' && <HotkeysSection settings={settings} update={update} />}
         {section === 'Capture' && <CaptureSection settings={settings} update={update} />}
       </main>
@@ -141,7 +142,17 @@ function NumberField({
 }
 
 /** URL input: draft while typing, committed on blur/Enter after validation. */
-function UrlField({ id, value, onCommit }: { id: string; value: string; onCommit: (v: string) => void }) {
+function UrlField({
+  id,
+  value,
+  defaultValue,
+  onCommit,
+}: {
+  id: string;
+  value: string;
+  defaultValue: string;
+  onCommit: (v: string) => void;
+}) {
   const [draft, setDraft] = useState(value);
   const [error, setError] = useState<string | null>(null);
   const editing = useRef(false);
@@ -157,8 +168,8 @@ function UrlField({ id, value, onCommit }: { id: string; value: string; onCommit
     const raw = draft.trim();
     if (raw === '') {
       setError(null);
-      setDraft(DEFAULT_SETTINGS.ankiUrl);
-      onCommit(DEFAULT_SETTINGS.ankiUrl);
+      setDraft(defaultValue);
+      onCommit(defaultValue);
       return;
     }
     try {
@@ -257,7 +268,12 @@ function AnkiSection({ settings, update, anki }: SectionProps & { anki: AnkiData
       <div className="panel">
         <div className="row">
           <label htmlFor="ankiUrl">AnkiConnect URL</label>
-          <UrlField id="ankiUrl" value={settings.ankiUrl} onCommit={(ankiUrl) => update({ ankiUrl })} />
+          <UrlField
+            id="ankiUrl"
+            value={settings.ankiUrl}
+            defaultValue={DEFAULT_SETTINGS.ankiUrl}
+            onCommit={(ankiUrl) => update({ ankiUrl })}
+          />
         </div>
         <div className="row">
           <label>Status</label>
@@ -512,6 +528,80 @@ function QuickCardsSection({ settings, update, anki }: SectionProps & { anki: An
             onChange={(basicModel) => update({ basicModel })}
           />
           {missingFrontBack && <span className="badge">needs Front and Back fields</span>}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function WhisperSection({ settings, update }: SectionProps) {
+  const [health, setHealth] = useState<string | null>(null);
+  const testWorker = async (): Promise<void> => {
+    try {
+      const res = await fetch(new URL('/health', settings.workerUrl));
+      const data = (await res.json()) as { ok: boolean; mock: boolean; hasKey: boolean };
+      setHealth(
+        data.mock
+          ? 'Reachable · MOCK mode (no real transcription)'
+          : data.hasKey
+            ? 'Reachable · API key configured ✓'
+            : 'Reachable, but no OPENAI_API_KEY — add it to apps/worker/.dev.vars',
+      );
+    } catch {
+      setHealth('Not reachable — run `pnpm --filter @migaku2/worker dev`');
+    }
+  };
+  return (
+    <>
+      <h1>Whisper</h1>
+      <p className="lede">
+        The ✨ button in the sidebar generates subtitles for videos that have none: audio is
+        captured from playback in 30-second chunks and transcribed progressively via the local
+        transcription worker. Generated tracks are cached per video.
+      </p>
+      <div className="panel">
+        <div className="row">
+          <label htmlFor="workerUrl">Worker URL</label>
+          <UrlField
+            id="workerUrl"
+            value={settings.workerUrl}
+            defaultValue={DEFAULT_SETTINGS.workerUrl}
+            onCommit={(workerUrl) => update({ workerUrl })}
+          />
+        </div>
+        <div className="row">
+          <label>Status</label>
+          <button className="btn" onClick={() => void testWorker()}>
+            Test
+          </button>
+          {health && <span className="hint">{health}</span>}
+        </div>
+        <div className="row">
+          <label htmlFor="whisperLang">Language hint</label>
+          <input
+            id="whisperLang"
+            type="text"
+            maxLength={2}
+            style={{ width: 64, textAlign: 'center' }}
+            value={settings.whisperLang}
+            onChange={(e) => {
+              const v = e.target.value.toLowerCase().replace(/[^a-z]/g, '');
+              if (v.length === 0 || v.length === 2) update({ whisperLang: v });
+            }}
+          />
+          <span className="hint">ISO-639-1 (e.g. ja); empty = auto-detect</span>
+        </div>
+        <div className="row">
+          <label htmlFor="generateRate">Generation speed</label>
+          <NumberField
+            id="generateRate"
+            value={settings.generateRate}
+            min={1}
+            max={3}
+            step={0.25}
+            unit="× (YouTube only; video is muted while >1×. Netflix always 1×.)"
+            onCommit={(generateRate) => update({ generateRate })}
+          />
         </div>
       </div>
     </>

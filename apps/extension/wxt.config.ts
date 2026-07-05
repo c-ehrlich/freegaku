@@ -9,7 +9,8 @@ export default defineConfig({
     name: 'Freegaku',
     description: 'YouTube/Netflix subtitle sidebar + Anki mining (personal build)',
     // tabCapture + offscreen + activeTab: DRM-safe audio capture on Netflix.
-    permissions: ['storage', 'tabCapture', 'offscreen', 'activeTab'],
+    // unlimitedStorage: generated subtitle tracks are cached per video.
+    permissions: ['storage', 'unlimitedStorage', 'tabCapture', 'offscreen', 'activeTab'],
     host_permissions: [
       // AnkiConnect — calls must come from the extension origin.
       'http://127.0.0.1:8765/*',

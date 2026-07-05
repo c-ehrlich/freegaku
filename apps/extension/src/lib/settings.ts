@@ -25,6 +25,12 @@ export interface M2Settings {
   imageMaxWidth: number;
   /** 0.1–1 */
   jpegQuality: number;
+  /** Transcription worker (apps/worker; wrangler dev serves it locally). */
+  workerUrl: string;
+  /** ISO-639-1 language hint for Whisper ('' = auto-detect). */
+  whisperLang: string;
+  /** Playback rate while generating on YouTube (Netflix always 1x). */
+  generateRate: number;
 }
 
 const DEFAULT_FIELDS: Record<MineContent, string | null> = {
@@ -48,6 +54,9 @@ export const DEFAULT_SETTINGS: M2Settings = {
   overlayKey: 'S',
   imageMaxWidth: 1280,
   jpegQuality: 0.9,
+  workerUrl: 'http://localhost:8787',
+  whisperLang: 'ja',
+  generateRate: 2,
 };
 
 const STORAGE_KEY = 'settings';

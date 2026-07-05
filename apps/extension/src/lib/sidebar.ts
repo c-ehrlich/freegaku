@@ -47,6 +47,22 @@ html[dark] #m2-sidebar {
   color: initial;
   background: initial;
 }
+#m2-sidebar .m2-gen {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  font-size: 15px;
+  line-height: 28px;
+  text-align: center;
+  cursor: pointer;
+  padding: 0;
+}
+#m2-sidebar .m2-gen:hover {
+  background: rgba(128, 128, 128, 0.2);
+}
 #m2-sidebar .m2-status {
   padding: 14px 12px;
   font-size: 13px;
@@ -153,6 +169,7 @@ export class Sidebar {
   private readonly selectEl: HTMLSelectElement;
   private readonly statusEl: HTMLElement;
   private readonly chipEl: HTMLButtonElement;
+  private genEl!: HTMLButtonElement;
   private rows: HTMLElement[] = [];
   private cues: SubtitleCue[] = [];
   private activeIndex = -1;
@@ -166,6 +183,13 @@ export class Sidebar {
    * mode 'basic' (Alt+click) creates a standalone Basic card; selText is the
    * text that was selected when the action fired (Front prefill). */
   onMine?: (from: number, to: number, mode: 'update' | 'basic', selText: string) => void;
+  /** ✨ button: start (or stop, while running) Whisper generation. */
+  onGenerate?: () => void;
+
+  setGenerating(running: boolean): void {
+    this.genEl.textContent = running ? '⏹' : '✨';
+    this.genEl.title = running ? 'Stop generating' : 'Generate subtitles with Whisper';
+  }
 
   constructor() {
     this.host = document.createElement('div');
@@ -185,7 +209,12 @@ export class Sidebar {
     this.selectEl.addEventListener('change', () => {
       this.onTrackChange?.(this.selectEl.selectedIndex);
     });
-    header.append(title, this.selectEl);
+    this.genEl = document.createElement('button');
+    this.genEl.className = 'm2-gen';
+    this.genEl.textContent = '✨';
+    this.genEl.title = 'Generate subtitles with Whisper';
+    this.genEl.addEventListener('click', () => this.onGenerate?.());
+    header.append(title, this.selectEl, this.genEl);
 
     this.statusEl = document.createElement('div');
     this.statusEl.className = 'm2-status';

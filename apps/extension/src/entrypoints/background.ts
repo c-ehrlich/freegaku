@@ -10,7 +10,8 @@ type BgMessage =
   | { type: 'm2-anki-check' }
   | { type: 'm2-record-start' }
   | { type: 'm2-record-stop' }
-  | { type: 'm2-screenshot' };
+  | { type: 'm2-screenshot' }
+  | { type: 'm2-transcribe'; wavBase64: string; offsetMs: number; scale: number };
 
 export default defineBackground(() => {
   browser.commands.onCommand.addListener((command, tab) => {
@@ -40,6 +41,8 @@ export default defineBackground(() => {
           return respond(sendToOffscreen({ type: 'stop' }));
         case 'm2-screenshot':
           return respond(handleScreenshot(sender.tab?.windowId));
+        case 'm2-transcribe':
+          return respond(handleTranscribe(msg));
         default:
           return undefined;
       }
@@ -86,6 +89,35 @@ async function ensureOffscreenDocument(): Promise<void> {
     reasons: [chrome.offscreen.Reason.USER_MEDIA],
     justification: 'Record tab audio for Anki sentence-audio clips',
   });
+}
+
+/** Relay a WAV chunk to the transcription worker (content scripts can't call
+ * localhost with the page's origin; the extension origin can). */
+async function handleTranscribe(msg: {
+  wavBase64: string;
+  offsetMs: number;
+  scale: number;
+}): Promise<unknown> {
+  const settings = await getSettings();
+  const binary = atob(msg.wavBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const url = new URL('/transcribe', settings.workerUrl);
+  url.searchParams.set('offsetMs', String(msg.offsetMs));
+  url.searchParams.set('scale', String(msg.scale));
+  if (settings.whisperLang) url.searchParams.set('lang', settings.whisperLang);
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), { method: 'POST', body: bytes });
+  } catch {
+    return {
+      ok: false,
+      error: `Can't reach the transcription worker at ${settings.workerUrl} — run \`pnpm --filter @migaku2/worker dev\`.`,
+    };
+  }
+  const data = (await res.json()) as { segments?: unknown; error?: string };
+  if (!res.ok || data.error) return { ok: false, error: data.error ?? `Worker HTTP ${res.status}` };
+  return { ok: true, segments: data.segments };
 }
 
 async function handleScreenshot(windowId: number | undefined): Promise<unknown> {

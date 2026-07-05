@@ -1,0 +1,11 @@
+# Runs fully locally via `pnpm dev` (wrangler dev) — no Cloudflare account
+# needed until you want to `pnpm deploy` it somewhere public.
+name = "freegaku-worker"
+main = "src/index.ts"
+compatibility_date = "2026-06-01"
+
+# Secrets for local dev live in .dev.vars (gitignored):
+#   OPENAI_API_KEY=sk-...
+# Optional vars:
+#   OPENAI_MODEL=whisper-1
+#   MOCK_ASR=1        # synthetic segments, no API calls (for tests)

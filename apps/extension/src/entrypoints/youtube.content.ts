@@ -5,6 +5,8 @@ import type { MineRequestMessage, MineResponse, VideoTracksPayload } from '../li
 import type { MineMode } from '../lib/messages';
 import { blobToBase64 } from '../lib/blob';
 import { captureSpan } from '../lib/capture';
+import { GenerationSession, elementChunkRecorder, loadGenCues, saveGenCues } from '../lib/generate';
+import type { Segment } from '../lib/generate';
 import { webmOpusToMp3 } from '../lib/mp3';
 import { Overlay } from '../lib/overlay';
 import { promptFront } from '../lib/prompt';
@@ -32,6 +34,9 @@ export default defineContentScript({
     let fallbackRequestedFor: string | null = null;
     let mining = false;
     let wasPaused = true;
+    let gen: GenerationSession | null = null;
+    let genCues: SubtitleCue[] = [];
+    let genSelected = false;
     let settings: M2Settings = await getSettings();
     onSettingsChanged((s) => (settings = s));
 
@@ -50,12 +55,103 @@ export default defineContentScript({
         void video.play().catch(() => {});
       }
     };
-    sidebar.onTrackChange = (i) => void loadTrack(i);
+    sidebar.onTrackChange = (i) => {
+      if (payload && genAvailable() && i === payload.tracks.length) selectGenTrack();
+      else void loadTrack(i);
+    };
     sidebar.onRetry = () => {
       if (trackIndex >= 0) void loadTrack(trackIndex);
       else requestTracks();
     };
     sidebar.onMine = (from, to, mode, selText) => void mine(from, to, mode, selText);
+    sidebar.onGenerate = () => {
+      if (gen) gen.stop();
+      else void startGeneration();
+    };
+
+    // --- Whisper generation ------------------------------------------------
+
+    function genAvailable(): boolean {
+      return genCues.length > 0 || gen !== null;
+    }
+
+    function displayTracks() {
+      const tracks = [...(payload?.tracks ?? [])];
+      if (genAvailable()) {
+        tracks.push({ url: '', languageCode: '', kind: '' as const, label: '✨ Whisper (generated)' });
+      }
+      return tracks;
+    }
+
+    function refreshTrackSelect(): void {
+      const tracks = displayTracks();
+      sidebar.setTracks(tracks, genSelected ? tracks.length - 1 : Math.max(trackIndex, 0));
+    }
+
+    function selectGenTrack(): void {
+      genSelected = true;
+      cues = genCues;
+      sidebar.setStatus(gen ? 'Generating…' : null);
+      sidebar.setCues(genCues);
+      refreshTrackSelect();
+    }
+
+    async function startGeneration(): Promise<void> {
+      if (!payload?.videoId || !video) return;
+      const forVideo = payload.videoId;
+      const v = video;
+      const prev = { rate: v.playbackRate, muted: v.muted };
+      const rate = Math.max(1, Math.min(3, settings.generateRate));
+      if (rate > 1) {
+        v.playbackRate = rate;
+        v.muted = true; // fast mode: silent; captureStream records regardless
+      }
+      if (v.paused) void v.play().catch(() => {});
+      sidebar.setGenerating(true);
+      genCues = [];
+      gen = new GenerationSession({
+        video: v,
+        makeRecorder: () => elementChunkRecorder(v),
+        chunkSec: 30,
+        transcribe: transcribeChunk,
+        onCues: (c) => {
+          if (payload?.videoId !== forVideo) return;
+          genCues = c;
+          if (genSelected) {
+            cues = c;
+            sidebar.setCues(c);
+          }
+          void saveGenCues('youtube', forVideo, c);
+        },
+        onStatus: (s) => {
+          if (genSelected) sidebar.setStatus(s);
+        },
+      });
+      selectGenTrack(); // after gen is set, so the pseudo-track exists
+      try {
+        await gen.run();
+        if (genCues.length > 0) showToast(`Whisper subtitles ready — ${genCues.length} lines`);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : String(e), 'error');
+      } finally {
+        gen = null;
+        sidebar.setGenerating(false);
+        v.playbackRate = prev.rate;
+        v.muted = prev.muted;
+        refreshTrackSelect();
+      }
+    }
+
+    async function transcribeChunk(wav: Blob, offsetMs: number, scale: number): Promise<Segment[]> {
+      const res = (await browser.runtime.sendMessage({
+        type: 'm2-transcribe',
+        wavBase64: await blobToBase64(wav),
+        offsetMs,
+        scale,
+      })) as { ok: boolean; segments?: Segment[]; error?: string };
+      if (!res.ok || !res.segments) throw new Error(res.error ?? 'Transcription failed');
+      return res.segments;
+    }
 
     function requestTracks(): void {
       window.postMessage({ source: M2_SOURCE, type: 'refresh' }, '*');
@@ -82,7 +178,8 @@ export default defineContentScript({
       const track = payload.tracks[index];
       if (!track) return;
       trackIndex = index;
-      sidebar.setTracks(payload.tracks, index);
+      genSelected = false;
+      refreshTrackSelect();
       cues = [];
       sidebar.setCues([]);
       overlay.setText(null);
@@ -140,15 +237,29 @@ export default defineContentScript({
         fallbackRequestedFor = null;
         cues = [];
         overlay.setText(null);
+        gen?.stop();
+        genCues = [];
+        genSelected = false;
+        // Surface a previously generated track for this video, if cached.
+        const forVideo = p.videoId;
+        void loadGenCues('youtube', forVideo).then((cached) => {
+          if (cached && payload?.videoId === forVideo && !gen) {
+            genCues = cached;
+            refreshTrackSelect();
+            if (payload.tracks.length === 0) selectGenTrack();
+          }
+        });
       }
       ensureMounted();
       if (p.tracks.length === 0) {
         trackIndex = -1;
         cues = [];
-        sidebar.setTracks([], -1);
+        refreshTrackSelect();
         sidebar.setCues([]);
         sidebar.setStatus(
-          p.source === 'none' ? 'No subtitles found for this video.' : 'No subtitle tracks.',
+          p.source === 'none'
+            ? 'No subtitles found — click ✨ to generate with Whisper.'
+            : 'No subtitle tracks.',
           true,
         );
         return;

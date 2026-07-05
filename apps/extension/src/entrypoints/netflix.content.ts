@@ -4,6 +4,8 @@ import { M2_SOURCE, isM2Message } from '../lib/messages';
 import type { MineMode, MineRequestMessage, MineResponse, VideoTracksPayload } from '../lib/messages';
 import { blobToBase64 } from '../lib/blob';
 import { captureNetflixSpan } from '../lib/capture-netflix';
+import { GenerationSession, loadGenCues, saveGenCues, tabCaptureChunkRecorder } from '../lib/generate';
+import type { Segment } from '../lib/generate';
 import { webmOpusToMp3 } from '../lib/mp3';
 import { Overlay } from '../lib/overlay';
 import { promptFront } from '../lib/prompt';
@@ -75,6 +77,9 @@ export default defineContentScript({
     let video: HTMLVideoElement | null = null;
     let mining = false;
     let wasPaused = true;
+    let gen: GenerationSession | null = null;
+    let genCues: SubtitleCue[] = [];
+    let genSelected = false;
     let settings: M2Settings = await getSettings();
     onSettingsChanged((s) => (settings = s));
 
@@ -95,12 +100,96 @@ export default defineContentScript({
       control('seek', ms);
       control('play');
     };
-    sidebar.onTrackChange = (i) => void loadTrack(i);
+    sidebar.onTrackChange = (i) => {
+      if (payload && genAvailable() && i === payload.tracks.length) selectGenTrack();
+      else void loadTrack(i);
+    };
     sidebar.onRetry = () => {
       if (trackIndex >= 0) void loadTrack(trackIndex);
       else window.postMessage({ source: M2_SOURCE, type: 'refresh' }, '*');
     };
     sidebar.onMine = (from, to, mode, selText) => void mine(from, to, mode, selText);
+    sidebar.onGenerate = () => {
+      if (gen) gen.stop();
+      else void startGeneration();
+    };
+
+    // --- Whisper generation (1x: Netflix's player owns the rate; audio is
+    // captured via tabCapture which needs the Alt+M activeTab grant) --------
+
+    function genAvailable(): boolean {
+      return genCues.length > 0 || gen !== null;
+    }
+
+    function displayTracks() {
+      const tracks = [...(payload?.tracks ?? [])];
+      if (genAvailable()) {
+        tracks.push({ url: '', languageCode: '', kind: '' as const, label: '✨ Whisper (generated)' });
+      }
+      return tracks;
+    }
+
+    function refreshTrackSelect(): void {
+      const tracks = displayTracks();
+      sidebar.setTracks(tracks, genSelected ? tracks.length - 1 : Math.max(trackIndex, 0));
+    }
+
+    function selectGenTrack(): void {
+      genSelected = true;
+      cues = genCues;
+      sidebar.setStatus(gen ? 'Generating…' : null);
+      sidebar.setCues(genCues);
+      refreshTrackSelect();
+    }
+
+    async function startGeneration(): Promise<void> {
+      if (!payload?.videoId || !video) return;
+      const forVideo = payload.videoId;
+      const v = video;
+      if (v.paused) control('play');
+      sidebar.setGenerating(true);
+      genCues = [];
+      gen = new GenerationSession({
+        video: v,
+        makeRecorder: tabCaptureChunkRecorder,
+        chunkSec: 30,
+        transcribe: transcribeChunk,
+        onCues: (c) => {
+          if (payload?.videoId !== forVideo) return;
+          genCues = c;
+          if (genSelected) {
+            cues = c;
+            sidebar.setCues(c);
+          }
+          void saveGenCues('netflix', forVideo, c);
+        },
+        onStatus: (s) => {
+          if (genSelected) sidebar.setStatus(s);
+        },
+      });
+      selectGenTrack(); // after gen is set, so the pseudo-track exists
+      try {
+        await gen.run();
+        if (genCues.length > 0) showToast(`Whisper subtitles ready — ${genCues.length} lines`);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : String(e), 'error');
+      } finally {
+        gen = null;
+        sidebar.setGenerating(false);
+        refreshTrackSelect();
+      }
+    }
+
+    async function transcribeChunk(wav: Blob, offsetMs: number, scale: number): Promise<Segment[]> {
+      const res = (await browser.runtime.sendMessage({
+        type: 'm2-transcribe',
+        wavBase64: await blobToBase64(wav),
+        offsetMs,
+        scale,
+      })) as { ok: boolean; segments?: Segment[]; error?: string };
+      if (!res.ok || !res.segments) throw new Error(res.error ?? 'Transcription failed');
+      return res.segments;
+    }
 
     function pickDefaultTrack(p: VideoTracksPayload): number {
       const score = (i: number): number => {
@@ -120,7 +209,8 @@ export default defineContentScript({
       const track = payload.tracks[index];
       if (!track) return;
       trackIndex = index;
-      sidebar.setTracks(payload.tracks, index);
+      genSelected = false;
+      refreshTrackSelect();
       cues = [];
       sidebar.setCues([]);
       overlay.setText(null);
@@ -163,15 +253,25 @@ export default defineContentScript({
       if (isNewVideo) {
         cues = [];
         overlay.setText(null);
+        gen?.stop();
+        genCues = [];
+        genSelected = false;
+        const forVideo = p.videoId;
+        void loadGenCues('netflix', forVideo).then((cached) => {
+          if (cached && payload?.videoId === forVideo && !gen) {
+            genCues = cached;
+            refreshTrackSelect();
+          }
+        });
       }
       ensureMounted();
       if (p.tracks.length === 0) {
         trackIndex = -1;
         cues = [];
-        sidebar.setTracks([], -1);
+        refreshTrackSelect();
         sidebar.setCues([]);
         sidebar.setStatus(
-          'Waiting for Netflix subtitle manifest… (reload the page if this persists)',
+          'Waiting for Netflix subtitle manifest… (reload the page if this persists, or click ✨ to generate with Whisper)',
         );
         return;
       }
