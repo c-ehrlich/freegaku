@@ -64,7 +64,7 @@ async function handleRecordStart(tabId: number | undefined): Promise<unknown> {
       if (chrome.runtime.lastError || !id) {
         const raw = chrome.runtime.lastError?.message ?? 'Tab capture refused.';
         const hint = raw.includes('invoked')
-          ? 'Press Alt+M once on this tab (or click the migaku2 toolbar icon) to grant capture access, then retry.'
+          ? 'Press Alt+M once on this tab (or click the Freegaku toolbar icon) to grant capture access, then retry.'
           : raw;
         reject(new Error(hint));
       } else {

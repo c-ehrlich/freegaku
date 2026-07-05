@@ -1,4 +1,6 @@
-# migaku2 — YouTube subtitle mining extension
+# Freegaku — YouTube/Netflix subtitle mining extension
+
+(Repo/package namespace is still `migaku2`; “Freegaku” is the product name.)
 
 A small Chrome (MV3) extension for mining Anki cards from YouTube videos, tuned to one
 person's workflow. Inspired by Migaku's Subtitle Browser, built on techniques proven by

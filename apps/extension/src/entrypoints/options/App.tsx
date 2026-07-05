@@ -34,7 +34,7 @@ export function App() {
     <div className="app">
       <aside className="side">
         <div className="brand">
-          migaku2
+          Freegaku
           <small>settings</small>
         </div>
         <nav>

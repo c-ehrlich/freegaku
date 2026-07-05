@@ -6,7 +6,7 @@ export default defineConfig({
   // Default .output/ is invisible in Finder dialogs (dotfile) — use dist/.
   outDir: 'dist',
   manifest: {
-    name: 'migaku2',
+    name: 'Freegaku',
     description: 'YouTube/Netflix subtitle sidebar + Anki mining (personal build)',
     // tabCapture + offscreen + activeTab: DRM-safe audio capture on Netflix.
     permissions: ['storage', 'tabCapture', 'offscreen', 'activeTab'],
