@@ -15,7 +15,7 @@ the sentence text, and a source link to the Anki card you just created with
 - **Anki** with the **AnkiConnect** add-on (code `2055492159`), running while you mine
 - **Yomitan** for the main workflow (Freegaku enriches the note Yomitan creates)
 
-### Build
+### 1. Build
 
 ```sh
 git clone https://github.com/c-ehrlich/freegaku.git
@@ -24,13 +24,16 @@ pnpm install
 pnpm build
 ```
 
-The extension is emitted to `apps/extension/dist/chrome-mv3/`.
+This emits the extension to `apps/extension/dist/chrome-mv3/` — the folder you
+load in the next step. (`dist/` is not checked in; nothing to load until you
+build.)
 
-### Install (Chrome / Brave / any Chromium)
+### 2. Install (Chrome / Brave / any Chromium)
 
 1. Open `chrome://extensions` (or `brave://extensions`).
 2. Enable **Developer mode** (top right).
-3. Click **Load unpacked** and select `apps/extension/dist/chrome-mv3`.
+3. Click **Load unpacked** and select `apps/extension/dist/chrome-mv3` (created
+   by the build step above).
 
 After pulling changes: `pnpm build`, then click the **↻ reload** button on the
 extension's card (the browser caches the manifest until you do).
