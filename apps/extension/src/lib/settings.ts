@@ -27,6 +27,8 @@ export interface M2Settings {
   jpegQuality: number;
   /** Transcription worker (apps/worker; wrangler dev serves it locally). */
   workerUrl: string;
+  /** Bearer token for the worker; empty for an unauthenticated localhost worker. */
+  workerToken: string;
   /** ISO-639-1 language hint for Whisper ('' = auto-detect). */
   whisperLang: string;
   /** Playback rate while generating on YouTube (Netflix always 1x). */
@@ -55,6 +57,7 @@ export const DEFAULT_SETTINGS: M2Settings = {
   imageMaxWidth: 1280,
   jpegQuality: 0.9,
   workerUrl: 'http://localhost:8787',
+  workerToken: '',
   whisperLang: 'ja',
   generateRate: 2,
 };

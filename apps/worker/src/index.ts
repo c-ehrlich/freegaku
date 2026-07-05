@@ -6,6 +6,10 @@ export interface Env {
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
   MOCK_ASR?: string;
+  /** Optional shared secret. Unset = open (fine for localhost); set it
+   * (wrangler secret put WORKER_TOKEN) before deploying anywhere public,
+   * and put the same value in the extension's Whisper settings. */
+  WORKER_TOKEN?: string;
 }
 
 interface OutSegment {
@@ -18,7 +22,7 @@ interface OutSegment {
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
 function json(data: unknown, status = 200): Response {
@@ -36,6 +40,12 @@ export default {
       return json({ ok: true, mock: env.MOCK_ASR === '1', hasKey: Boolean(env.OPENAI_API_KEY) });
     }
     if (url.pathname === '/transcribe' && request.method === 'POST') {
+      if (env.WORKER_TOKEN) {
+        const auth = request.headers.get('Authorization');
+        if (auth !== `Bearer ${env.WORKER_TOKEN}`) {
+          return json({ error: 'Unauthorized — set the worker token in the extension settings.' }, 401);
+        }
+      }
       try {
         return await transcribe(request, env, url);
       } catch (e) {

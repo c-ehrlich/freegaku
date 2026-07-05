@@ -5,7 +5,7 @@ var __name = (target, value) => __defProp(target, "name", { value, configurable:
 var CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type"
+  "Access-Control-Allow-Headers": "Content-Type, Authorization"
 };
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -22,6 +22,12 @@ var src_default = {
       return json({ ok: true, mock: env.MOCK_ASR === "1", hasKey: Boolean(env.OPENAI_API_KEY) });
     }
     if (url.pathname === "/transcribe" && request.method === "POST") {
+      if (env.WORKER_TOKEN) {
+        const auth = request.headers.get("Authorization");
+        if (auth !== `Bearer ${env.WORKER_TOKEN}`) {
+          return json({ error: "Unauthorized \u2014 set the worker token in the extension settings." }, 401);
+        }
+      }
       try {
         return await transcribe(request, env, url);
       } catch (e) {
@@ -122,7 +128,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// .wrangler/tmp/bundle-70BRcF/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-wgACPz/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -154,7 +160,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-70BRcF/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-wgACPz/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;

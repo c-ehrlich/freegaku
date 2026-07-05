@@ -108,7 +108,13 @@ async function handleTranscribe(msg: {
   if (settings.whisperLang) url.searchParams.set('lang', settings.whisperLang);
   let res: Response;
   try {
-    res = await fetch(url.toString(), { method: 'POST', body: bytes });
+    res = await fetch(url.toString(), {
+      method: 'POST',
+      body: bytes,
+      headers: settings.workerToken
+        ? { Authorization: `Bearer ${settings.workerToken}` }
+        : undefined,
+    });
   } catch {
     return {
       ok: false,

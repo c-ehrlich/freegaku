@@ -577,6 +577,17 @@ function WhisperSection({ settings, update }: SectionProps) {
           {health && <span className="hint">{health}</span>}
         </div>
         <div className="row">
+          <label htmlFor="workerToken">Worker token</label>
+          <input
+            id="workerToken"
+            type="password"
+            style={{ width: 260 }}
+            value={settings.workerToken}
+            onChange={(e) => update({ workerToken: e.target.value.trim() })}
+          />
+          <span className="hint">empty for a local worker; required once deployed</span>
+        </div>
+        <div className="row">
           <label htmlFor="whisperLang">Language hint</label>
           <input
             id="whisperLang"
