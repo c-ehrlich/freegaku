@@ -89,11 +89,15 @@ apps/worker/     (future) CF Worker: yt-dlp-style audio grab + server-side ASR f
 
 ## Milestones
 
-1. **Read**: track discovery → sidebar with auto-scroll/active-line/click-to-seek,
-   track picker, Alt+G. ← *riskiest (POT), validate first*
-2. **Overlay**: current-line overlay, Alt+S, both states persisted.
-3. **Mine**: capture audio (MP3) + screenshot; AnkiConnect update-last with field
-   writes, markup inheritance, guiBrowse dance, toasts. Multi-select spans.
+1. **Read** ✅: track discovery → sidebar with centered auto-scroll (pauses while
+   video paused/hovering, recenters on resume)/active-line/click-to-seek, track
+   picker, Alt+G. Automatic InnerTube fallback when player URLs return empty
+   (POT enforcement) — validated live.
+2. **Overlay** ✅: current-line overlay in #movie_player, Alt+S, states persisted.
+3. **Mine** ✅: per-row ＋ button + multi-line selection chip; captureStream+
+   MediaRecorder replay capture, lamejs MP3, canvas screenshot at span midpoint;
+   AnkiConnect update-last (note-type-filtered) with field-existence checks,
+   markup inheritance, guiBrowse dance, toasts. E2E-verified against real Anki.
 4. **Basic cards**: modifier-+ standalone `addNote` flow.
 5. **Polish**: options page, padding tweaks, error surfaces, (maybe) worker fallback.
 

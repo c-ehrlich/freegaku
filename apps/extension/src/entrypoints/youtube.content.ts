@@ -1,10 +1,18 @@
 import { parseSrv3 } from '@migaku2/subtitles';
+import type { SubtitleCue } from '@migaku2/subtitles';
 import { M2_SOURCE, isM2Message } from '../lib/messages';
-import type { VideoTracksPayload } from '../lib/messages';
+import type { MineRequestMessage, MineResponse, VideoTracksPayload } from '../lib/messages';
+import { captureSpan } from '../lib/capture';
+import { webmOpusToMp3 } from '../lib/mp3';
+import { Overlay } from '../lib/overlay';
 import { Sidebar } from '../lib/sidebar';
+import { showToast } from '../lib/toast';
 
 const STORAGE_SIDEBAR_VISIBLE = 'sidebarVisible';
+const STORAGE_OVERLAY_VISIBLE = 'overlayVisible';
 const MOUNT_CHECK_INTERVAL_MS = 1000;
+const TICK_MS = 250;
+const AUDIO_PAD_MS = 500;
 
 export default defineContentScript({
   matches: ['*://www.youtube.com/*', '*://m.youtube.com/*'],
@@ -12,14 +20,23 @@ export default defineContentScript({
   async main() {
     console.debug('[m2] isolated script loaded', location.href);
     const sidebar = new Sidebar();
+    const overlay = new Overlay();
     let payload: VideoTracksPayload | null = null;
+    let cues: SubtitleCue[] = [];
     let trackIndex = -1;
     let video: HTMLVideoElement | null = null;
     let fallbackRequestedFor: string | null = null;
+    let mining = false;
+    let wasPaused = true;
 
-    const stored = await browser.storage.local.get(STORAGE_SIDEBAR_VISIBLE);
-    let visible = (stored[STORAGE_SIDEBAR_VISIBLE] as boolean | undefined) ?? true;
-    sidebar.setVisible(visible);
+    const stored = await browser.storage.local.get([
+      STORAGE_SIDEBAR_VISIBLE,
+      STORAGE_OVERLAY_VISIBLE,
+    ]);
+    let sidebarVisible = (stored[STORAGE_SIDEBAR_VISIBLE] as boolean | undefined) ?? true;
+    let overlayVisible = (stored[STORAGE_OVERLAY_VISIBLE] as boolean | undefined) ?? true;
+    sidebar.setVisible(sidebarVisible);
+    overlay.setEnabled(overlayVisible);
 
     sidebar.onSeek = (ms) => {
       if (video) {
@@ -32,6 +49,7 @@ export default defineContentScript({
       if (trackIndex >= 0) void loadTrack(trackIndex);
       else requestTracks();
     };
+    sidebar.onMine = (from, to) => void mine(from, to);
 
     function requestTracks(): void {
       window.postMessage({ source: M2_SOURCE, type: 'refresh' }, '*');
@@ -59,7 +77,9 @@ export default defineContentScript({
       if (!track) return;
       trackIndex = index;
       sidebar.setTracks(payload.tracks, index);
+      cues = [];
       sidebar.setCues([]);
+      overlay.setText(null);
       sidebar.setStatus('Loading subtitles…');
       const forVideo = payload.videoId;
       try {
@@ -69,12 +89,6 @@ export default defineContentScript({
           url.searchParams.set('c', payload.clientName);
           if (payload.clientVersion) url.searchParams.set('cver', payload.clientVersion);
         }
-        console.debug(
-          '[m2] fetching track:',
-          `params=[${[...url.searchParams.keys()].join(',')}]`,
-          `pot=${url.searchParams.has('pot')}`,
-          `exp=${url.searchParams.get('exp') ?? ''}`,
-        );
         const res = await fetch(url.toString());
         const xml = await res.text();
         console.debug('[m2] track response:', res.status, `${xml.length} bytes`);
@@ -86,22 +100,20 @@ export default defineContentScript({
             fallbackRequestedFor = forVideo;
             console.debug('[m2] player track empty; requesting InnerTube fallback');
             sidebar.setStatus('Retrying via fallback…');
-            window.postMessage(
-              { source: M2_SOURCE, type: 'fallback', videoId: forVideo },
-              '*',
-            );
+            window.postMessage({ source: M2_SOURCE, type: 'fallback', videoId: forVideo }, '*');
           } else {
             sidebar.setStatus('Subtitles came back empty (YouTube token issue).', true);
           }
           return;
         }
-        const cues = parseSrv3(xml);
-        if (cues.length === 0) {
+        const parsed = parseSrv3(xml);
+        if (parsed.length === 0) {
           sidebar.setStatus('Track contained no usable lines.', true);
           return;
         }
+        cues = parsed;
         sidebar.setStatus(null);
-        sidebar.setCues(cues);
+        sidebar.setCues(parsed);
       } catch {
         if (payload?.videoId === forVideo && trackIndex === index) {
           sidebar.setStatus('Failed to load subtitles.', true);
@@ -115,12 +127,18 @@ export default defineContentScript({
       payload = p;
       if (p.videoId === null) {
         sidebar.host.remove();
+        overlay.setText(null);
         return;
       }
-      if (isNewVideo) fallbackRequestedFor = null;
+      if (isNewVideo) {
+        fallbackRequestedFor = null;
+        cues = [];
+        overlay.setText(null);
+      }
       ensureMounted();
       if (p.tracks.length === 0) {
         trackIndex = -1;
+        cues = [];
         sidebar.setTracks([], -1);
         sidebar.setCues([]);
         sidebar.setStatus(
@@ -136,16 +154,71 @@ export default defineContentScript({
       }
     }
 
+    async function mine(from: number, to: number): Promise<void> {
+      if (!payload?.videoId || !video) return;
+      const span = cues.slice(from, to + 1);
+      if (span.length === 0) return;
+      if (mining) {
+        showToast('Already capturing — wait for the current card.', 'error');
+        return;
+      }
+      mining = true;
+      sidebar.setRowBusy(from, to, true);
+      try {
+        const startMs = span[0]!.start;
+        const endMs = span[span.length - 1]!.end;
+        const { audioWebm, imageJpeg } = await captureSpan(video, startMs, endMs, {
+          padMs: AUDIO_PAD_MS,
+        });
+        const mp3 = await webmOpusToMp3(audioWebm);
+        const message: MineRequestMessage = {
+          type: 'm2-mine',
+          audioBase64: await blobToBase64(mp3),
+          imageBase64: imageJpeg ? await blobToBase64(imageJpeg) : null,
+          lines: span.map((c) => c.text),
+          video: {
+            id: payload.videoId,
+            title: payload.title,
+            author: payload.author,
+            startSec: Math.floor(startMs / 1000),
+          },
+        };
+        const res = (await browser.runtime.sendMessage(message)) as MineResponse;
+        if (res.ok) {
+          showToast(res.word ? `Added to 「${res.word}」 ✓` : 'Card updated ✓');
+        } else {
+          showToast(res.error, 'error');
+        }
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : String(e), 'error');
+      } finally {
+        mining = false;
+        sidebar.setRowBusy(from, to, false);
+      }
+    }
+
     function ensureMounted(): void {
       if (!payload?.videoId) return;
       if (!sidebar.host.isConnected) {
         // #secondary is the related-videos column on watch pages. Absent in
-        // theater/fullscreen and on shorts — sidebar simply stays unmounted.
+        // theater/fullscreen and on shorts — sidebar simply stays unmounted
+        // there; the overlay covers those modes.
         const secondary = document.querySelector('#secondary');
         if (secondary) secondary.prepend(sidebar.host);
       }
+      const player = document.querySelector<HTMLElement>('#movie_player');
+      if (player) overlay.mount(player);
       const currentVideo = document.querySelector<HTMLVideoElement>('video.html5-main-video');
       if (currentVideo !== video) video = currentVideo;
+    }
+
+    /** Cue strictly containing t — the overlay mimics real captions. */
+    function cueAt(tMs: number): SubtitleCue | null {
+      for (const c of cues) {
+        if (c.start > tMs) break;
+        if (tMs < c.end) return c;
+      }
+      return null;
     }
 
     window.addEventListener('message', (e) => {
@@ -156,15 +229,26 @@ export default defineContentScript({
     window.addEventListener(
       'keydown',
       (e) => {
-        if (!e.altKey || e.ctrlKey || e.metaKey || e.code !== 'KeyG') return;
+        if (!e.altKey || e.ctrlKey || e.metaKey) return;
+        if (e.code !== 'KeyG' && e.code !== 'KeyS') return;
         const target = e.target as HTMLElement | null;
-        if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable) {
+        if (
+          target?.tagName === 'INPUT' ||
+          target?.tagName === 'TEXTAREA' ||
+          target?.isContentEditable
+        ) {
           return;
         }
         e.preventDefault();
-        visible = !visible;
-        sidebar.setVisible(visible);
-        void browser.storage.local.set({ [STORAGE_SIDEBAR_VISIBLE]: visible });
+        if (e.code === 'KeyG') {
+          sidebarVisible = !sidebarVisible;
+          sidebar.setVisible(sidebarVisible);
+          void browser.storage.local.set({ [STORAGE_SIDEBAR_VISIBLE]: sidebarVisible });
+        } else {
+          overlayVisible = !overlayVisible;
+          overlay.setEnabled(overlayVisible);
+          void browser.storage.local.set({ [STORAGE_OVERLAY_VISIBLE]: overlayVisible });
+        }
       },
       true,
     );
@@ -173,8 +257,28 @@ export default defineContentScript({
     // Poll instead of listening to timeupdate: immune to element swaps and
     // fires reliably after seeks-while-paused too.
     setInterval(() => {
-      if (video && visible) sidebar.updateTime(video.currentTime * 1000);
-    }, 300);
+      if (!video) return;
+      const tMs = video.currentTime * 1000;
+      const playing = !video.paused;
+      if (sidebarVisible) {
+        // Autoscroll (centered) only while playing; while paused the user may
+        // be browsing the list — snap back to center on resume.
+        sidebar.updateTime(tMs, playing);
+        if (playing && wasPaused) sidebar.recenter();
+      }
+      wasPaused = !playing;
+      overlay.setText(cueAt(tMs)?.text ?? null);
+    }, TICK_MS);
     requestTracks();
   },
 });
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+  return dataUrl.slice(dataUrl.indexOf(',') + 1);
+}

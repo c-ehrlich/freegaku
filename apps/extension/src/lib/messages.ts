@@ -32,6 +32,21 @@ export type M2Message =
    * ask the MAIN world for InnerTube-sourced tracks instead. */
   | { source: typeof M2_SOURCE; type: 'fallback'; videoId: string };
 
+// --- chrome.runtime messages (content script <-> service worker) ---
+
+export interface MineRequestMessage {
+  type: 'm2-mine';
+  /** base64 MP3 (no data: prefix) */
+  audioBase64: string | null;
+  /** base64 JPEG (no data: prefix) */
+  imageBase64: string | null;
+  /** Raw text of the selected subtitle line(s), unescaped. */
+  lines: string[];
+  video: { id: string; title: string; author: string; startSec: number };
+}
+
+export type MineResponse = { ok: true; word: string } | { ok: false; error: string };
+
 export function isM2Message(data: unknown): data is M2Message {
   return (
     typeof data === 'object' &&
