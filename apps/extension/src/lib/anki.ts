@@ -35,20 +35,34 @@ const DEFAULT_ANKI_URL = 'http://127.0.0.1:8765';
 const RANDOM_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const MARKUP_RE = /<(b|strong|i|em|u)[^>]*>(.*?)<\/\1>/gi;
 
+export interface UpdateMapping {
+  model: string;
+  fields: {
+    sentenceAudio: string | null;
+    image: string | null;
+    sentence: string | null;
+    origin: string | null;
+  };
+}
+
 export async function updateLastMiningNote(
   payload: MineNotePayload,
-  opts: { noteTypes: string[]; ankiUrl?: string },
+  opts: { mappings: UpdateMapping[]; ankiUrl?: string },
 ): Promise<MineResult> {
   const ankiUrl = opts.ankiUrl ?? DEFAULT_ANKI_URL;
+  const noteTypes = opts.mappings.map((m) => m.model);
+  if (noteTypes.length === 0) {
+    throw new AnkiError('No note types configured — add one in the extension settings.');
+  }
   const noteIds = await invoke<number[]>(
     ankiUrl,
     'findNotes',
-    { query: `(${opts.noteTypes.map((noteType) => `"note:${noteType}"`).join(' OR ')}) added:2` },
+    { query: `(${noteTypes.map((noteType) => `"note:${noteType}"`).join(' OR ')}) added:2` },
   );
 
   if (noteIds.length === 0) {
     throw new AnkiError(
-      `No note of type ${opts.noteTypes.map((t) => `“${t}”`).join(' / ')} added in the last ` +
+      `No note of type ${noteTypes.map((t) => `“${t}”`).join(' / ')} added in the last ` +
         '2 days — mine a word with Yomitan first, then click ＋.',
     );
   }
@@ -59,26 +73,42 @@ export async function updateLastMiningNote(
   if (!noteInfo) {
     throw new AnkiError('Could not read the recent MINING note.');
   }
+  const mapping = opts.mappings.find((m) => m.model === noteInfo.modelName);
+  if (!mapping) {
+    throw new AnkiError(`No field mapping configured for note type “${noteInfo.modelName}”.`);
+  }
+  /** Mapped destination field, if it actually exists on the note. */
+  const target = (content: keyof UpdateMapping['fields']): string | null => {
+    const field = mapping.fields[content];
+    return field && hasField(noteInfo, field) ? field : null;
+  };
 
   const fields: Record<string, string> = {};
   const word = noteInfo.fields.Word?.value ?? '';
 
-  if (payload.audio && hasField(noteInfo, 'Sentence-Audio')) {
+  const audioField = target('sentenceAudio');
+  if (payload.audio && audioField) {
     const storedAudioName = await storeMedia(ankiUrl, payload.audio, 'mp3');
-    fields['Sentence-Audio'] = `[sound:${storedAudioName}]`;
+    fields[audioField] = `[sound:${storedAudioName}]`;
   }
 
-  if (payload.image && hasField(noteInfo, 'Image')) {
+  const imageField = target('image');
+  if (payload.image && imageField) {
     const storedImageName = await storeMedia(ankiUrl, payload.image, 'jpg');
-    fields.Image = `<img src="${storedImageName}">`;
+    fields[imageField] = `<img src="${storedImageName}">`;
   }
 
-  if (payload.sentenceHtml !== undefined && hasField(noteInfo, 'Sentence')) {
-    fields.Sentence = inheritHtmlMarkup(payload.sentenceHtml, noteInfo.fields.Sentence?.value ?? '');
+  const sentenceField = target('sentence');
+  if (payload.sentenceHtml !== undefined && sentenceField) {
+    fields[sentenceField] = inheritHtmlMarkup(
+      payload.sentenceHtml,
+      noteInfo.fields[sentenceField]?.value ?? '',
+    );
   }
 
-  if (payload.originHtml !== undefined && hasField(noteInfo, 'Origin')) {
-    fields.Origin = payload.originHtml;
+  const originField = target('origin');
+  if (payload.originHtml !== undefined && originField) {
+    fields[originField] = payload.originHtml;
   }
 
   await ignoreAnkiError(invoke(ankiUrl, 'guiBrowse', { query: 'nid:1 nid:2' }));

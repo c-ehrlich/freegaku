@@ -131,7 +131,7 @@ async function handleMine(msg: MineRequestMessage): Promise<MineResponse> {
           )
         : await updateLastMiningNote(
             { ...media, sentenceHtml, originHtml },
-            { noteTypes: settings.noteTypes, ankiUrl: settings.ankiUrl },
+            { mappings: settings.mappings, ankiUrl: settings.ankiUrl },
           );
     return { ok: true, word: result.word };
   } catch (e) {

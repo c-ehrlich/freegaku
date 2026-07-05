@@ -1,13 +1,22 @@
+/** What the miner can write to a card. */
+export type MineContent = 'sentenceAudio' | 'image' | 'sentence' | 'origin';
+
+/** Per-note-type mapping: content kind → destination field (null = don't write). */
+export interface NoteTypeMapping {
+  model: string;
+  fields: Record<MineContent, string | null>;
+}
+
 export interface M2Settings {
   /** Audio padding before the span start (ms). */
   padStartMs: number;
   /** Audio padding after the span end (ms). */
   padEndMs: number;
-  /** Note types eligible for the update-last flow. */
-  noteTypes: string[];
+  /** Note types eligible for the update-last flow, with their field mappings. */
+  mappings: NoteTypeMapping[];
   /** Deck for standalone Basic cards. */
   basicDeck: string;
-  /** Note type for standalone cards. */
+  /** Note type for standalone cards (Front = prompt, Back = everything). */
   basicModel: string;
   ankiUrl: string;
   /** Letter pressed with Alt to toggle the sidebar / overlay. */
@@ -18,10 +27,20 @@ export interface M2Settings {
   jpegQuality: number;
 }
 
+const DEFAULT_FIELDS: Record<MineContent, string | null> = {
+  sentenceAudio: 'Sentence-Audio',
+  image: 'Image',
+  sentence: 'Sentence',
+  origin: 'Origin',
+};
+
 export const DEFAULT_SETTINGS: M2Settings = {
   padStartMs: 500,
   padEndMs: 500,
-  noteTypes: ['MINING: 単語', 'MINING: 文法'],
+  mappings: [
+    { model: 'MINING: 単語', fields: { ...DEFAULT_FIELDS } },
+    { model: 'MINING: 文法', fields: { ...DEFAULT_FIELDS, origin: null } },
+  ],
   basicDeck: '日本語',
   basicModel: 'Basic',
   ankiUrl: 'http://127.0.0.1:8765',
@@ -35,8 +54,16 @@ const STORAGE_KEY = 'settings';
 
 export async function getSettings(): Promise<M2Settings> {
   const stored = await browser.storage.local.get(STORAGE_KEY);
-  const partial = (stored[STORAGE_KEY] ?? {}) as Partial<M2Settings>;
-  return { ...DEFAULT_SETTINGS, ...partial };
+  const partial = (stored[STORAGE_KEY] ?? {}) as Partial<M2Settings> & { noteTypes?: string[] };
+  const settings = { ...DEFAULT_SETTINGS, ...partial };
+  // Migrate pre-mapping settings ({noteTypes: string[]}).
+  if (!partial.mappings && Array.isArray(partial.noteTypes)) {
+    settings.mappings = partial.noteTypes.map((model) => ({
+      model,
+      fields: { ...DEFAULT_FIELDS },
+    }));
+  }
+  return settings;
 }
 
 export async function saveSettings(settings: Partial<M2Settings>): Promise<void> {

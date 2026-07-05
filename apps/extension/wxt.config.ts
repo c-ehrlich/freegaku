@@ -2,6 +2,7 @@ import { defineConfig } from 'wxt';
 
 export default defineConfig({
   srcDir: 'src',
+  modules: ['@wxt-dev/module-react'],
   // Default .output/ is invisible in Finder dialogs (dotfile) — use dist/.
   outDir: 'dist',
   manifest: {
