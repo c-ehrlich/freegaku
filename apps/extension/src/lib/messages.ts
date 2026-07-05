@@ -34,8 +34,14 @@ export type M2Message =
 
 // --- chrome.runtime messages (content script <-> service worker) ---
 
+export type MineMode = 'update' | 'basic';
+
 export interface MineRequestMessage {
   type: 'm2-mine';
+  /** 'update' = enrich last Yomitan-mined MINING note; 'basic' = new Basic note. */
+  mode: MineMode;
+  /** Front text for mode 'basic' (raw, unescaped). */
+  front?: string;
   /** base64 MP3 (no data: prefix) */
   audioBase64: string | null;
   /** base64 JPEG (no data: prefix) */

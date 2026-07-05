@@ -2,9 +2,11 @@ import { parseSrv3 } from '@migaku2/subtitles';
 import type { SubtitleCue } from '@migaku2/subtitles';
 import { M2_SOURCE, isM2Message } from '../lib/messages';
 import type { MineRequestMessage, MineResponse, VideoTracksPayload } from '../lib/messages';
+import type { MineMode } from '../lib/messages';
 import { captureSpan } from '../lib/capture';
 import { webmOpusToMp3 } from '../lib/mp3';
 import { Overlay } from '../lib/overlay';
+import { promptFront } from '../lib/prompt';
 import { Sidebar } from '../lib/sidebar';
 import { showToast } from '../lib/toast';
 
@@ -49,7 +51,7 @@ export default defineContentScript({
       if (trackIndex >= 0) void loadTrack(trackIndex);
       else requestTracks();
     };
-    sidebar.onMine = (from, to) => void mine(from, to);
+    sidebar.onMine = (from, to, mode, selText) => void mine(from, to, mode, selText);
 
     function requestTracks(): void {
       window.postMessage({ source: M2_SOURCE, type: 'refresh' }, '*');
@@ -154,13 +156,25 @@ export default defineContentScript({
       }
     }
 
-    async function mine(from: number, to: number): Promise<void> {
+    async function mine(
+      from: number,
+      to: number,
+      mode: MineMode = 'update',
+      selText = '',
+    ): Promise<void> {
       if (!payload?.videoId || !video) return;
       const span = cues.slice(from, to + 1);
       if (span.length === 0) return;
       if (mining) {
         showToast('Already capturing — wait for the current card.', 'error');
         return;
+      }
+      // Ask for the Front before the (audible) capture starts, so Escape
+      // costs nothing.
+      let front: string | null = null;
+      if (mode === 'basic') {
+        front = await promptFront(selText);
+        if (!front) return;
       }
       mining = true;
       sidebar.setRowBusy(from, to, true);
@@ -173,6 +187,8 @@ export default defineContentScript({
         const mp3 = await webmOpusToMp3(audioWebm);
         const message: MineRequestMessage = {
           type: 'm2-mine',
+          mode,
+          front: front ?? undefined,
           audioBase64: await blobToBase64(mp3),
           imageBase64: imageJpeg ? await blobToBase64(imageJpeg) : null,
           lines: span.map((c) => c.text),
@@ -185,7 +201,13 @@ export default defineContentScript({
         };
         const res = (await browser.runtime.sendMessage(message)) as MineResponse;
         if (res.ok) {
-          showToast(res.word ? `Added to 「${res.word}」 ✓` : 'Card updated ✓');
+          showToast(
+            mode === 'basic'
+              ? `Created Basic card “${front}” ✓`
+              : res.word
+                ? `Added to 「${res.word}」 ✓`
+                : 'Card updated ✓',
+          );
         } else {
           showToast(res.error, 'error');
         }

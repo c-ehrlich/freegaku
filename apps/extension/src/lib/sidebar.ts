@@ -162,8 +162,10 @@ export class Sidebar {
   onSeek?: (ms: number) => void;
   onTrackChange?: (index: number) => void;
   onRetry?: () => void;
-  /** Mine cue lines [from..to] (inclusive; from === to for a single line). */
-  onMine?: (from: number, to: number) => void;
+  /** Mine cue lines [from..to] (inclusive; from === to for a single line).
+   * mode 'basic' (Alt+click) creates a standalone Basic card; selText is the
+   * text that was selected when the action fired (Front prefill). */
+  onMine?: (from: number, to: number, mode: 'update' | 'basic', selText: string) => void;
 
   constructor() {
     this.host = document.createElement('div');
@@ -200,11 +202,12 @@ export class Sidebar {
     this.chipEl.id = 'm2-chip';
     // Keep the selection alive: a mousedown would collapse it before click.
     this.chipEl.addEventListener('mousedown', (e) => e.preventDefault());
-    this.chipEl.addEventListener('click', () => {
+    this.chipEl.addEventListener('click', (e) => {
       const span = this.chipSpan;
+      const selText = window.getSelection()?.toString().trim() ?? '';
       this.hideChip();
       window.getSelection()?.removeAllRanges();
-      if (span) this.onMine?.(span.from, span.to);
+      if (span) this.onMine?.(span.from, span.to, e.altKey ? 'basic' : 'update', selText);
     });
     document.addEventListener('selectionchange', () => {
       clearTimeout(this.selDebounce);
@@ -254,8 +257,11 @@ export class Sidebar {
       const add = document.createElement('button');
       add.className = 'm2-add';
       add.textContent = '＋';
-      add.title = 'Add audio + screenshot to the last mined Anki card';
-      add.addEventListener('click', () => this.onMine?.(i, i));
+      add.title = 'Add audio + screenshot to the last mined Anki card\nAlt+click: new Basic card';
+      add.addEventListener('click', (e) => {
+        const selText = window.getSelection()?.toString().trim() ?? '';
+        this.onMine?.(i, i, e.altKey ? 'basic' : 'update', selText);
+      });
 
       row.append(time, text, add);
       row.dataset.i = String(i);

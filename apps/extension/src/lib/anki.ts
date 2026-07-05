@@ -85,6 +85,46 @@ export async function updateLastMiningNote(
   return { noteId: id, word };
 }
 
+export interface BasicCardPayload {
+  /** HTML for the Front field (already escaped). */
+  frontHtml: string;
+  audio?: { base64: string; filenameHint: string };
+  image?: { base64: string; filenameHint: string };
+  sentenceHtml?: string;
+  originHtml?: string;
+}
+
+/** Standalone card for non-Japanese lines: new Basic note, no Yomitan step. */
+export async function createBasicNote(
+  payload: BasicCardPayload,
+  opts: { deckName: string; modelName?: string; ankiUrl?: string },
+): Promise<MineResult> {
+  const ankiUrl = opts.ankiUrl ?? DEFAULT_ANKI_URL;
+  const backParts: string[] = [];
+  if (payload.sentenceHtml) backParts.push(payload.sentenceHtml);
+  const mediaParts: string[] = [];
+  if (payload.audio) {
+    mediaParts.push(`[sound:${await storeMedia(ankiUrl, payload.audio, 'mp3')}]`);
+  }
+  if (payload.image) {
+    mediaParts.push(`<img src="${await storeMedia(ankiUrl, payload.image, 'jpg')}">`);
+  }
+  if (mediaParts.length > 0) backParts.push(mediaParts.join('<br>'));
+  if (payload.originHtml) backParts.push(payload.originHtml);
+
+  const noteId = await invoke<number>(ankiUrl, 'addNote', {
+    note: {
+      deckName: opts.deckName,
+      modelName: opts.modelName ?? 'Basic',
+      fields: { Front: payload.frontHtml, Back: backParts.join('<br><br>') },
+      options: { allowDuplicate: true },
+      tags: ['m2'],
+    },
+  });
+  await ignoreAnkiError(invoke(ankiUrl, 'guiBrowse', { query: `nid:${noteId}` }));
+  return { noteId, word: payload.frontHtml };
+}
+
 export async function ankiAvailable(ankiUrl = DEFAULT_ANKI_URL): Promise<boolean> {
   try {
     await invoke(ankiUrl, 'version');
