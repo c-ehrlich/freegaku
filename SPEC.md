@@ -98,8 +98,11 @@ apps/worker/     (future) CF Worker: yt-dlp-style audio grab + server-side ASR f
    MediaRecorder replay capture, lamejs MP3, canvas screenshot at span midpoint;
    AnkiConnect update-last (note-type-filtered) with field-existence checks,
    markup inheritance, guiBrowse dance, toasts. E2E-verified against real Anki.
-4. **Basic cards**: modifier-+ standalone `addNote` flow.
-5. **Polish**: options page, padding tweaks, error surfaces, (maybe) worker fallback.
+4. **Basic cards** ✅: Alt+click ＋/chip → Front prompt (selection-prefilled, Esc
+   cancels pre-capture) → `addNote` Basic in the 日本語 deck, Back = sentence +
+   audio + image + origin, tagged `m2`. E2E-verified.
+5. **Polish**: options page (padding, deck/note types, hotkeys), error surfaces,
+   (maybe) worker fallback.
 
 ## Known risks
 

@@ -47,7 +47,10 @@ export async function updateLastMiningNote(
   );
 
   if (noteIds.length === 0) {
-    throw new AnkiError('No recent MINING note found — mine a word with Yomitan first.');
+    throw new AnkiError(
+      `No note of type ${opts.noteTypes.map((t) => `“${t}”`).join(' / ')} added in the last ` +
+        '2 days — mine a word with Yomitan first, then click ＋.',
+    );
   }
 
   const id = Math.max(...noteIds);

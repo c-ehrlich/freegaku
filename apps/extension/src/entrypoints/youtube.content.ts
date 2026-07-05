@@ -7,6 +7,8 @@ import { captureSpan } from '../lib/capture';
 import { webmOpusToMp3 } from '../lib/mp3';
 import { Overlay } from '../lib/overlay';
 import { promptFront } from '../lib/prompt';
+import { getSettings, onSettingsChanged } from '../lib/settings';
+import type { M2Settings } from '../lib/settings';
 import { Sidebar } from '../lib/sidebar';
 import { showToast } from '../lib/toast';
 
@@ -14,7 +16,6 @@ const STORAGE_SIDEBAR_VISIBLE = 'sidebarVisible';
 const STORAGE_OVERLAY_VISIBLE = 'overlayVisible';
 const MOUNT_CHECK_INTERVAL_MS = 1000;
 const TICK_MS = 250;
-const AUDIO_PAD_MS = 500;
 
 export default defineContentScript({
   matches: ['*://www.youtube.com/*', '*://m.youtube.com/*'],
@@ -30,6 +31,8 @@ export default defineContentScript({
     let fallbackRequestedFor: string | null = null;
     let mining = false;
     let wasPaused = true;
+    let settings: M2Settings = await getSettings();
+    onSettingsChanged((s) => (settings = s));
 
     const stored = await browser.storage.local.get([
       STORAGE_SIDEBAR_VISIBLE,
@@ -169,6 +172,13 @@ export default defineContentScript({
         showToast('Already capturing — wait for the current card.', 'error');
         return;
       }
+      // Fail fast while nothing has happened yet: an unreachable Anki should
+      // not cost an audible replay.
+      const ping = (await browser.runtime.sendMessage({ type: 'm2-anki-check' })) as MineResponse;
+      if (!ping.ok) {
+        showToast(ping.error, 'error');
+        return;
+      }
       // Ask for the Front before the (audible) capture starts, so Escape
       // costs nothing.
       let front: string | null = null;
@@ -182,7 +192,10 @@ export default defineContentScript({
         const startMs = span[0]!.start;
         const endMs = span[span.length - 1]!.end;
         const { audioWebm, imageJpeg } = await captureSpan(video, startMs, endMs, {
-          padMs: AUDIO_PAD_MS,
+          padStartMs: settings.padStartMs,
+          padEndMs: settings.padEndMs,
+          imageMaxWidth: settings.imageMaxWidth,
+          jpegQuality: settings.jpegQuality,
         });
         const mp3 = await webmOpusToMp3(audioWebm);
         const message: MineRequestMessage = {
@@ -252,7 +265,9 @@ export default defineContentScript({
       'keydown',
       (e) => {
         if (!e.altKey || e.ctrlKey || e.metaKey) return;
-        if (e.code !== 'KeyG' && e.code !== 'KeyS') return;
+        const sidebarCode = `Key${settings.sidebarKey}`;
+        const overlayCode = `Key${settings.overlayKey}`;
+        if (e.code !== sidebarCode && e.code !== overlayCode) return;
         const target = e.target as HTMLElement | null;
         if (
           target?.tagName === 'INPUT' ||
@@ -262,7 +277,7 @@ export default defineContentScript({
           return;
         }
         e.preventDefault();
-        if (e.code === 'KeyG') {
+        if (e.code === sidebarCode) {
           sidebarVisible = !sidebarVisible;
           sidebar.setVisible(sidebarVisible);
           void browser.storage.local.set({ [STORAGE_SIDEBAR_VISIBLE]: sidebarVisible });

@@ -5,7 +5,8 @@
 // cards. Works on YouTube because there is no DRM.
 
 export interface CaptureOptions {
-  padMs?: number;
+  padStartMs?: number;
+  padEndMs?: number;
   imageMaxWidth?: number;
   jpegQuality?: number;
 }
@@ -26,11 +27,10 @@ export async function captureSpan(
   endMs: number,
   opts: CaptureOptions = {},
 ): Promise<CaptureResult> {
-  const padMs = opts.padMs ?? 500;
-  const t0 = Math.max(0, (startMs - padMs) / 1000);
+  const t0 = Math.max(0, (startMs - (opts.padStartMs ?? 500)) / 1000);
   const t1 = Math.min(
     Number.isFinite(video.duration) ? video.duration : Infinity,
-    (endMs + padMs) / 1000,
+    (endMs + (opts.padEndMs ?? 500)) / 1000,
   );
   if (!(t1 > t0)) throw new Error('Invalid capture range');
 
