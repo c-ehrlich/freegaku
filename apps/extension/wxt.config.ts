@@ -2,6 +2,8 @@ import { defineConfig } from 'wxt';
 
 export default defineConfig({
   srcDir: 'src',
+  // Default .output/ is invisible in Finder dialogs (dotfile) — use dist/.
+  outDir: 'dist',
   manifest: {
     name: 'migaku2',
     description: 'YouTube subtitle sidebar + Anki mining (personal build)',
