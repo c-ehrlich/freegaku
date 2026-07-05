@@ -279,3 +279,30 @@ button.btn.subtle:hover {
 option.missing {
   color: var(--error);
 }
+
+/* --- inline field validation --- */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.field-error {
+  font-size: 12px;
+  color: var(--error);
+}
+input.invalid {
+  border-color: var(--error);
+}
+input.invalid:focus-visible {
+  outline-color: var(--error);
+}
+.row {
+  align-items: flex-start;
+}
+.row > label {
+  padding-top: 8px;
+}
+.row > .pill,
+.row > .hint {
+  margin-top: 8px;
+}

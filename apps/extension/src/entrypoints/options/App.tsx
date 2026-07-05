@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DEFAULT_SETTINGS } from '../../lib/settings';
 import type { M2Settings, MineContent, NoteTypeMapping } from '../../lib/settings';
 import { useAnki, useSettings } from './hooks';
@@ -68,6 +68,175 @@ interface SectionProps {
   update: (patch: Partial<M2Settings>) => void;
 }
 
+/** Draft-state number input: type freely, errors shown inline, only valid
+ * values are committed (the last valid value stays saved meanwhile). */
+function NumberField({
+  id,
+  value,
+  min,
+  max,
+  step,
+  unit,
+  onCommit,
+}: {
+  id: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  unit?: string;
+  onCommit: (v: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  const [error, setError] = useState<string | null>(null);
+  const editing = useRef(false);
+
+  // Reflect external changes, but never while the user is mid-edit.
+  useEffect(() => {
+    if (!editing.current) {
+      setDraft(String(value));
+      setError(null);
+    }
+  }, [value]);
+
+  const handle = (raw: string): void => {
+    setDraft(raw);
+    const v = Number(raw);
+    if (raw.trim() === '' || !Number.isFinite(v)) {
+      setError('Enter a number');
+    } else if (v < min || v > max) {
+      setError(`Must be between ${min} and ${max}`);
+    } else {
+      setError(null);
+      onCommit(v);
+    }
+  };
+
+  return (
+    <span className="field">
+      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <input
+          id={id}
+          type="number"
+          step={step}
+          className={error ? 'invalid' : ''}
+          aria-invalid={error !== null}
+          value={draft}
+          onFocus={() => (editing.current = true)}
+          onBlur={() => {
+            editing.current = false;
+            if (error) {
+              // leave the error visible; snap the draft back to the saved value
+              setDraft(String(value));
+              setError(null);
+            }
+          }}
+          onChange={(e) => handle(e.target.value)}
+        />
+        {unit && <span className="hint">{unit}</span>}
+      </span>
+      {error && <span className="field-error">{error}</span>}
+    </span>
+  );
+}
+
+/** URL input: draft while typing, committed on blur/Enter after validation. */
+function UrlField({ id, value, onCommit }: { id: string; value: string; onCommit: (v: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  const [error, setError] = useState<string | null>(null);
+  const editing = useRef(false);
+  useEffect(() => {
+    if (!editing.current) {
+      setDraft(value);
+      setError(null);
+    }
+  }, [value]);
+
+  const commit = (): void => {
+    editing.current = false;
+    const raw = draft.trim();
+    if (raw === '') {
+      setError(null);
+      setDraft(DEFAULT_SETTINGS.ankiUrl);
+      onCommit(DEFAULT_SETTINGS.ankiUrl);
+      return;
+    }
+    try {
+      const url = new URL(raw);
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error();
+      setError(null);
+      onCommit(raw);
+    } catch {
+      setError('Enter a valid http(s) URL, e.g. http://127.0.0.1:8765');
+    }
+  };
+
+  return (
+    <span className="field" style={{ flex: 1 }}>
+      <input
+        id={id}
+        type="text"
+        className={error ? 'invalid' : ''}
+        aria-invalid={error !== null}
+        value={draft}
+        onFocus={() => (editing.current = true)}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setError(null);
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit();
+        }}
+      />
+      {error && <span className="field-error">{error}</span>}
+    </span>
+  );
+}
+
+/** Single-letter hotkey input with the same draft/error behavior. */
+function KeyField({ value, onCommit }: { value: string; onCommit: (v: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  const [error, setError] = useState<string | null>(null);
+  const editing = useRef(false);
+  useEffect(() => {
+    if (!editing.current) {
+      setDraft(value);
+      setError(null);
+    }
+  }, [value]);
+  return (
+    <span className="field">
+      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span className="kbd-prefix">Alt +</span>
+        <input
+          className={`key ${error ? 'invalid' : ''}`}
+          type="text"
+          maxLength={1}
+          value={draft}
+          onFocus={() => (editing.current = true)}
+          onBlur={() => {
+            editing.current = false;
+            setDraft(value);
+            setError(null);
+          }}
+          onChange={(e) => {
+            const raw = e.target.value.toUpperCase();
+            setDraft(raw);
+            if (/^[A-Z]$/.test(raw)) {
+              setError(null);
+              onCommit(raw);
+            } else {
+              setError('One letter, A–Z');
+            }
+          }}
+        />
+      </span>
+      {error && <span className="field-error">{error}</span>}
+    </span>
+  );
+}
+
 function ConnectionBanner({ anki }: { anki: AnkiData }) {
   if (anki.status !== 'error') return null;
   return (
@@ -88,13 +257,7 @@ function AnkiSection({ settings, update, anki }: SectionProps & { anki: AnkiData
       <div className="panel">
         <div className="row">
           <label htmlFor="ankiUrl">AnkiConnect URL</label>
-          <input
-            id="ankiUrl"
-            type="text"
-            style={{ flex: 1 }}
-            value={settings.ankiUrl}
-            onChange={(e) => update({ ankiUrl: e.target.value.trim() || DEFAULT_SETTINGS.ankiUrl })}
-          />
+          <UrlField id="ankiUrl" value={settings.ankiUrl} onCommit={(ankiUrl) => update({ ankiUrl })} />
         </div>
         <div className="row">
           <label>Status</label>
@@ -356,21 +519,6 @@ function QuickCardsSection({ settings, update, anki }: SectionProps & { anki: An
 }
 
 function HotkeysSection({ settings, update }: SectionProps) {
-  const keyInput = (key: 'sidebarKey' | 'overlayKey') => (
-    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <span className="kbd-prefix">Alt +</span>
-      <input
-        className="key"
-        type="text"
-        maxLength={1}
-        value={settings[key]}
-        onChange={(e) => {
-          const v = e.target.value.toUpperCase().replace(/[^A-Z]/g, '');
-          if (v) update({ [key]: v } as Partial<M2Settings>);
-        }}
-      />
-    </span>
-  );
   return (
     <>
       <h1>Hotkeys</h1>
@@ -378,11 +526,11 @@ function HotkeysSection({ settings, update }: SectionProps) {
       <div className="panel">
         <div className="row">
           <label>Toggle sidebar</label>
-          {keyInput('sidebarKey')}
+          <KeyField value={settings.sidebarKey} onCommit={(sidebarKey) => update({ sidebarKey })} />
         </div>
         <div className="row">
           <label>Toggle overlay</label>
-          {keyInput('overlayKey')}
+          <KeyField value={settings.overlayKey} onCommit={(overlayKey) => update({ overlayKey })} />
         </div>
         <div className="row">
           <label>Mine current line</label>
@@ -397,12 +545,6 @@ function HotkeysSection({ settings, update }: SectionProps) {
 }
 
 function CaptureSection({ settings, update }: SectionProps) {
-  const num =
-    (key: 'padStartMs' | 'padEndMs' | 'imageMaxWidth' | 'jpegQuality', min: number, max: number) =>
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const v = Number(e.target.value);
-      if (Number.isFinite(v)) update({ [key]: Math.min(max, Math.max(min, v)) } as Partial<M2Settings>);
-    };
   return (
     <>
       <h1>Capture</h1>
@@ -411,58 +553,54 @@ function CaptureSection({ settings, update }: SectionProps) {
         <h2>Audio</h2>
         <div className="row">
           <label htmlFor="padStartMs">Padding before line</label>
-          <input
+          <NumberField
             id="padStartMs"
-            type="number"
+            value={settings.padStartMs}
             min={0}
             max={5000}
             step={50}
-            value={settings.padStartMs}
-            onChange={num('padStartMs', 0, 5000)}
+            unit="ms"
+            onCommit={(padStartMs) => update({ padStartMs })}
           />
-          <span className="hint">ms</span>
         </div>
         <div className="row">
           <label htmlFor="padEndMs">Padding after line</label>
-          <input
+          <NumberField
             id="padEndMs"
-            type="number"
+            value={settings.padEndMs}
             min={0}
             max={5000}
             step={50}
-            value={settings.padEndMs}
-            onChange={num('padEndMs', 0, 5000)}
+            unit="ms"
+            onCommit={(padEndMs) => update({ padEndMs })}
           />
-          <span className="hint">ms</span>
         </div>
       </div>
       <div className="panel">
         <h2>Screenshot</h2>
         <div className="row">
           <label htmlFor="imageMaxWidth">Max width</label>
-          <input
+          <NumberField
             id="imageMaxWidth"
-            type="number"
+            value={settings.imageMaxWidth}
             min={320}
             max={3840}
             step={10}
-            value={settings.imageMaxWidth}
-            onChange={num('imageMaxWidth', 320, 3840)}
+            unit="px"
+            onCommit={(imageMaxWidth) => update({ imageMaxWidth })}
           />
-          <span className="hint">px</span>
         </div>
         <div className="row">
           <label htmlFor="jpegQuality">JPEG quality</label>
-          <input
+          <NumberField
             id="jpegQuality"
-            type="number"
-            min={0.1}
-            max={1}
-            step={0.05}
-            value={settings.jpegQuality}
-            onChange={num('jpegQuality', 0.1, 1)}
+            value={Math.round(settings.jpegQuality * 100)}
+            min={10}
+            max={100}
+            step={5}
+            unit="%"
+            onCommit={(pct) => update({ jpegQuality: pct / 100 })}
           />
-          <span className="hint">0.1 – 1</span>
         </div>
       </div>
     </>
