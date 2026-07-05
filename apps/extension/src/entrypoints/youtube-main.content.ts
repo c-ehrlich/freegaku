@@ -30,12 +30,14 @@ export default defineContentScript({
   world: 'MAIN',
   runAt: 'document_start',
   main() {
+    console.debug('[m2:main] main-world script loaded', location.href);
     let lastVideoId: string | null | undefined; // undefined = no discovery yet
     let lastPayload: VideoTracksPayload | null = null;
     let seq = 0;
 
     function post(payload: VideoTracksPayload): void {
       lastPayload = payload;
+      console.debug('[m2:main] posting tracks', payload.videoId, payload.source, payload.tracks.length);
       window.postMessage({ source: M2_SOURCE, type: 'tracks', payload }, '*');
     }
 
@@ -94,6 +96,8 @@ export default defineContentScript({
                 author: data.author ?? '',
                 source: 'player',
                 tracks,
+                clientName: ytcfgGet('INNERTUBE_CLIENT_NAME'),
+                clientVersion: ytcfgGet('INNERTUBE_CLIENT_VERSION'),
               };
               if (tracks.some((t) => t.url.includes('pot='))) return candidate;
             }
@@ -106,10 +110,15 @@ export default defineContentScript({
       return candidate;
     }
 
+    function ytcfgGet(key: string): string | undefined {
+      const ytcfg = (window as unknown as { ytcfg?: { get?: (k: string) => unknown } }).ytcfg;
+      const value = ytcfg?.get?.(key);
+      return typeof value === 'string' ? value : undefined;
+    }
+
     /** Tier 2: InnerTube with the ANDROID client, whose URLs need no POT (for now). */
     async function innertubeTracks(videoId: string): Promise<VideoTracksPayload | null> {
-      const ytcfg = (window as unknown as { ytcfg?: { get?: (k: string) => unknown } }).ytcfg;
-      const key = ytcfg?.get?.('INNERTUBE_API_KEY');
+      const key = ytcfgGet('INNERTUBE_API_KEY');
       const url = `/youtubei/v1/player${typeof key === 'string' ? `?key=${key}` : ''}`;
       const res = await fetch(url, {
         method: 'POST',
@@ -176,12 +185,23 @@ export default defineContentScript({
     // The isolated-world script announces itself; replay or (re)discover.
     window.addEventListener('message', (e) => {
       if (e.source !== window || !isM2Message(e.data)) return;
-      if (e.data.type !== 'refresh') return;
-      const id = videoIdFromUrl();
-      if (lastPayload && lastPayload.videoId === id && lastPayload.tracks.length > 0) {
-        post(lastPayload);
-      } else {
-        void discover(id);
+      if (e.data.type === 'refresh') {
+        const id = videoIdFromUrl();
+        if (lastPayload && lastPayload.videoId === id && lastPayload.tracks.length > 0) {
+          post(lastPayload);
+        } else {
+          void discover(id);
+        }
+      } else if (e.data.type === 'fallback') {
+        const id = e.data.videoId;
+        if (id !== videoIdFromUrl()) return;
+        const mySeq = ++seq; // cancel any in-flight discovery
+        void innertubeTracks(id)
+          .catch(() => null)
+          .then((p) => {
+            if (mySeq !== seq) return;
+            post(p ?? { videoId: id, title: '', author: '', source: 'none', tracks: [] });
+          });
       }
     });
 

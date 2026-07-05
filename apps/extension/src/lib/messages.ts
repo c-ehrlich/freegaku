@@ -20,11 +20,17 @@ export interface VideoTracksPayload {
   /** Which discovery tier produced the tracks. */
   source: 'player' | 'innertube' | 'none';
   tracks: TrackInfo[];
+  /** ytcfg INNERTUBE_CLIENT_NAME/_VERSION — timedtext wants c= and cver= params. */
+  clientName?: string;
+  clientVersion?: string;
 }
 
 export type M2Message =
   | { source: typeof M2_SOURCE; type: 'tracks'; payload: VideoTracksPayload }
-  | { source: typeof M2_SOURCE; type: 'refresh' };
+  | { source: typeof M2_SOURCE; type: 'refresh' }
+  /** Player-sourced caption URL returned an empty body (bad/missing POT) —
+   * ask the MAIN world for InnerTube-sourced tracks instead. */
+  | { source: typeof M2_SOURCE; type: 'fallback'; videoId: string };
 
 export function isM2Message(data: unknown): data is M2Message {
   return (

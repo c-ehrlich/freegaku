@@ -5,21 +5,27 @@ import type { TrackInfo } from './messages';
 // and shadow-root piercing is not something we can rely on. All styles are
 // namespaced under #m2-sidebar and scoped with high-specificity selectors.
 
+// YouTube sets <html dark> in dark mode; its --yt-spec-* vars aren't reliably
+// resolvable from injected elements, so colors are explicit per theme.
 const CSS = `
 #m2-sidebar {
-  background: var(--yt-spec-badge-chip-background, rgba(255,255,255,0.06));
+  background: rgba(0, 0, 0, 0.05);
   border-radius: 12px;
   margin-bottom: 16px;
   font-family: "Roboto", "Noto Sans JP", sans-serif;
-  color: var(--yt-spec-text-primary, #f1f1f1);
+  color: #0f0f0f;
   overflow: hidden;
+}
+html[dark] #m2-sidebar {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f1f1f1;
 }
 #m2-sidebar .m2-header {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--yt-spec-10-percent-layer, rgba(128,128,128,0.2));
+  border-bottom: 1px solid rgba(128, 128, 128, 0.25);
 }
 #m2-sidebar .m2-title {
   font-size: 13px;
@@ -33,7 +39,7 @@ const CSS = `
   font-size: 12px;
   color: inherit;
   background: transparent;
-  border: 1px solid var(--yt-spec-10-percent-layer, rgba(128,128,128,0.3));
+  border: 1px solid rgba(128, 128, 128, 0.35);
   border-radius: 6px;
   padding: 3px 6px;
 }
@@ -44,7 +50,10 @@ const CSS = `
 #m2-sidebar .m2-status {
   padding: 14px 12px;
   font-size: 13px;
-  color: var(--yt-spec-text-secondary, #aaa);
+  color: #606060;
+}
+html[dark] #m2-sidebar .m2-status {
+  color: #aaa;
 }
 #m2-sidebar .m2-status button {
   font: inherit;
@@ -69,7 +78,7 @@ const CSS = `
   cursor: default;
 }
 #m2-sidebar .m2-row:hover {
-  background: var(--yt-spec-badge-chip-background, rgba(128,128,128,0.15));
+  background: rgba(128, 128, 128, 0.15);
 }
 #m2-sidebar .m2-row.m2-active {
   background: rgba(62, 166, 255, 0.15);
@@ -92,6 +101,7 @@ const CSS = `
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
+  color: inherit;
 }
 `;
 
@@ -195,13 +205,15 @@ export class Sidebar {
     }
   }
 
-  /** Highlight + autoscroll to the cue at time t (ms). */
+  /** Highlight + autoscroll to the most recently started cue at time t (ms).
+   * Deliberately ignores cue end: during inter-line gaps (common in ASR
+   * tracks) the line you just heard stays highlighted, which is what you
+   * want when mining. */
   updateTime(tMs: number): void {
     let next = -1;
     for (let i = 0; i < this.cues.length; i++) {
-      const cue = this.cues[i]!;
-      if (cue.start > tMs) break;
-      if (tMs < cue.end) next = i;
+      if (this.cues[i]!.start > tMs) break;
+      next = i;
     }
     if (next === this.activeIndex) return;
     if (this.activeIndex >= 0) this.rows[this.activeIndex]?.classList.remove('m2-active');

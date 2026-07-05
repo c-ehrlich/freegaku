@@ -10,10 +10,12 @@ export default defineContentScript({
   matches: ['*://www.youtube.com/*', '*://m.youtube.com/*'],
   runAt: 'document_idle',
   async main() {
+    console.debug('[m2] isolated script loaded', location.href);
     const sidebar = new Sidebar();
     let payload: VideoTracksPayload | null = null;
     let trackIndex = -1;
     let video: HTMLVideoElement | null = null;
+    let fallbackRequestedFor: string | null = null;
 
     const stored = await browser.storage.local.get(STORAGE_SIDEBAR_VISIBLE);
     let visible = (stored[STORAGE_SIDEBAR_VISIBLE] as boolean | undefined) ?? true;
@@ -63,13 +65,34 @@ export default defineContentScript({
       try {
         const url = new URL(track.url, location.origin);
         url.searchParams.set('fmt', 'srv3');
+        if (payload.source === 'player' && payload.clientName) {
+          url.searchParams.set('c', payload.clientName);
+          if (payload.clientVersion) url.searchParams.set('cver', payload.clientVersion);
+        }
+        console.debug(
+          '[m2] fetching track:',
+          `params=[${[...url.searchParams.keys()].join(',')}]`,
+          `pot=${url.searchParams.has('pot')}`,
+          `exp=${url.searchParams.get('exp') ?? ''}`,
+        );
         const res = await fetch(url.toString());
         const xml = await res.text();
+        console.debug('[m2] track response:', res.status, `${xml.length} bytes`);
         if (payload?.videoId !== forVideo || trackIndex !== index) return; // stale
         if (!res.ok || xml.length === 0) {
-          // Empty 200 = missing/invalid POT. The refresh may pick up a
-          // player-sourced URL that has one.
-          sidebar.setStatus('Subtitles came back empty (YouTube token issue).', true);
+          // Empty 200 = missing/invalid POT on the player-sourced URL. Ask the
+          // MAIN world for InnerTube (ANDROID) tracks, whose URLs need no POT.
+          if (payload.source === 'player' && fallbackRequestedFor !== forVideo) {
+            fallbackRequestedFor = forVideo;
+            console.debug('[m2] player track empty; requesting InnerTube fallback');
+            sidebar.setStatus('Retrying via fallback…');
+            window.postMessage(
+              { source: M2_SOURCE, type: 'fallback', videoId: forVideo },
+              '*',
+            );
+          } else {
+            sidebar.setStatus('Subtitles came back empty (YouTube token issue).', true);
+          }
           return;
         }
         const cues = parseSrv3(xml);
@@ -87,12 +110,14 @@ export default defineContentScript({
     }
 
     function onTracksPayload(p: VideoTracksPayload): void {
+      console.debug('[m2] tracks payload', p.videoId, p.source, p.tracks.length);
       const isNewVideo = p.videoId !== payload?.videoId;
       payload = p;
       if (p.videoId === null) {
         sidebar.host.remove();
         return;
       }
+      if (isNewVideo) fallbackRequestedFor = null;
       ensureMounted();
       if (p.tracks.length === 0) {
         trackIndex = -1;
@@ -120,15 +145,7 @@ export default defineContentScript({
         if (secondary) secondary.prepend(sidebar.host);
       }
       const currentVideo = document.querySelector<HTMLVideoElement>('video.html5-main-video');
-      if (currentVideo !== video) {
-        video?.removeEventListener('timeupdate', onTimeUpdate);
-        video = currentVideo;
-        video?.addEventListener('timeupdate', onTimeUpdate);
-      }
-    }
-
-    function onTimeUpdate(): void {
-      if (video) sidebar.updateTime(video.currentTime * 1000);
+      if (currentVideo !== video) video = currentVideo;
     }
 
     window.addEventListener('message', (e) => {
@@ -153,6 +170,11 @@ export default defineContentScript({
     );
 
     setInterval(ensureMounted, MOUNT_CHECK_INTERVAL_MS);
+    // Poll instead of listening to timeupdate: immune to element swaps and
+    // fires reliably after seeks-while-paused too.
+    setInterval(() => {
+      if (video && visible) sidebar.updateTime(video.currentTime * 1000);
+    }, 300);
     requestTracks();
   },
 });

@@ -1,0 +1,11 @@
+{
+  "skillOverrides": {
+    "cloudflare": "off",
+    "cloudflare-email-service": "off",
+    "cloudflare-one": "off",
+    "cloudflare-one-migrations": "off",
+    "durable-objects": "off",
+    "workers-best-practices": "off",
+    "wrangler": "off"
+  }
+}
