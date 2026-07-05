@@ -101,8 +101,16 @@ apps/worker/     (future) CF Worker: yt-dlp-style audio grab + server-side ASR f
 4. **Basic cards** ✅: Alt+click ＋/chip → Front prompt (selection-prefilled, Esc
    cancels pre-capture) → `addNote` Basic in the 日本語 deck, Back = sentence +
    audio + image + origin, tagged `m2`. E2E-verified.
-5. **Polish**: options page (padding, deck/note types, hotkeys), error surfaces,
-   (maybe) worker fallback.
+5. **Polish** ✅: options page (padding, deck/note types, hotkeys), error surfaces.
+   (Worker fallback still open.)
+6. **Netflix** ✅: manifest interception (WebVTT profile + showAllSubDubTracks,
+   rename-tolerant), player-API seek bridge + preciseSeeking hack, LR-style
+   right sidebar (player shrunk via CSS), overlay, mining via tabCapture +
+   offscreen doc (audio) and captureVisibleTab + DPR crop (screenshot, Netflix
+   chrome hidden during shot). Alt+M command = mine current line AND grants
+   the activeTab permission tab capture requires (one press per browser
+   session unlocks the ＋ buttons too). Verified live against real Netflix
+   (ja CC track, episodic metadata in Origin). See docs/netflix.md.
 
 ## Known risks
 

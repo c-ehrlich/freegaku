@@ -5,24 +5,96 @@ import { getSettings } from '../lib/settings';
 // AnkiConnect calls must originate from the extension origin — content-script
 // fetches carry the page origin, which AnkiConnect rejects.
 
+type BgMessage =
+  | MineRequestMessage
+  | { type: 'm2-anki-check' }
+  | { type: 'm2-record-start' }
+  | { type: 'm2-record-stop' }
+  | { type: 'm2-screenshot' };
+
 export default defineBackground(() => {
+  browser.commands.onCommand.addListener((command, tab) => {
+    if (command !== 'mine-current-line' || tab?.id === undefined) return;
+    void browser.tabs.sendMessage(tab.id, { type: 'm2-mine-current' }).catch(() => {});
+  });
+
   browser.runtime.onMessage.addListener(
-    (message: unknown, _sender, sendResponse: (res: MineResponse) => void) => {
-      const msg = message as MineRequestMessage | { type: 'm2-anki-check' };
-      if (msg?.type === 'm2-anki-check') {
-        void handleAnkiCheck().then(sendResponse);
-        return true;
+    (message: unknown, sender, sendResponse: (res: unknown) => void) => {
+      const msg = message as BgMessage;
+      const respond = (p: Promise<unknown>): true => {
+        void p
+          .then(sendResponse)
+          .catch((e) =>
+            sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) }),
+          );
+        return true; // keep the message channel open for the async response
+      };
+      switch (msg?.type) {
+        case 'm2-anki-check':
+          return respond(handleAnkiCheck());
+        case 'm2-mine':
+          return respond(handleMine(msg));
+        case 'm2-record-start':
+          return respond(handleRecordStart(sender.tab?.id));
+        case 'm2-record-stop':
+          return respond(sendToOffscreen({ type: 'stop' }));
+        case 'm2-screenshot':
+          return respond(handleScreenshot(sender.tab?.windowId));
+        default:
+          return undefined;
       }
-      if (msg?.type !== 'm2-mine') return;
-      void handleMine(msg)
-        .then(sendResponse)
-        .catch((e) =>
-          sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) }),
-        );
-      return true; // keep the message channel open for the async response
     },
   );
 });
+
+// --- DRM-safe capture (Netflix): tabCapture audio + visible-tab screenshot ---
+
+async function handleRecordStart(tabId: number | undefined): Promise<unknown> {
+  if (tabId === undefined) return { ok: false, error: 'No tab id' };
+  // The offscreen document must exist BEFORE the stream id is minted — ids
+  // are single-use and expire within seconds.
+  await ensureOffscreenDocument();
+  const streamId = await new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error('Tab capture timed out — press Alt+M once on this tab to grant capture access, then retry.')),
+      5000,
+    );
+    chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => {
+      clearTimeout(timer);
+      if (chrome.runtime.lastError || !id) {
+        const raw = chrome.runtime.lastError?.message ?? 'Tab capture refused.';
+        const hint = raw.includes('invoked')
+          ? 'Press Alt+M once on this tab (or click the migaku2 toolbar icon) to grant capture access, then retry.'
+          : raw;
+        reject(new Error(hint));
+      } else {
+        resolve(id);
+      }
+    });
+  });
+  return await sendToOffscreen({ type: 'start', streamId });
+}
+
+async function sendToOffscreen(msg: { type: string; streamId?: string }): Promise<unknown> {
+  return await browser.runtime.sendMessage({ ...msg, target: 'm2-offscreen' });
+}
+
+async function ensureOffscreenDocument(): Promise<void> {
+  if (await chrome.offscreen.hasDocument()) return;
+  await chrome.offscreen.createDocument({
+    url: 'offscreen.html',
+    reasons: [chrome.offscreen.Reason.USER_MEDIA],
+    justification: 'Record tab audio for Anki sentence-audio clips',
+  });
+}
+
+async function handleScreenshot(windowId: number | undefined): Promise<unknown> {
+  const dataUrl = await browser.tabs.captureVisibleTab(windowId ?? chrome.windows.WINDOW_ID_CURRENT, {
+    format: 'jpeg',
+    quality: 92,
+  });
+  return { ok: true, dataUrl };
+}
 
 async function handleAnkiCheck(): Promise<MineResponse> {
   const settings = await getSettings();
@@ -40,8 +112,7 @@ async function handleMine(msg: MineRequestMessage): Promise<MineResponse> {
     const settings = await getSettings();
     const sentenceHtml = msg.lines.map(escapeHtml).join('<br>');
     const originHtml =
-      `<a href="https://youtu.be/${msg.video.id}?t=${msg.video.startSec}">` +
-      `${escapeHtml(msg.video.title || msg.video.id)}</a>` +
+      `<a href="${escapeHtml(msg.video.url)}">${escapeHtml(msg.video.title || msg.video.id)}</a>` +
       (msg.video.author ? ` — ${escapeHtml(msg.video.author)}` : '');
     const filenameHint = `${msg.video.id}_${msg.video.startSec}`;
     const media = {

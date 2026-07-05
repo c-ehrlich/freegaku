@@ -302,6 +302,11 @@ export class Sidebar {
     }
   }
 
+  /** Index of the currently highlighted cue, or -1. */
+  get activeCueIndex(): number {
+    return this.activeIndex;
+  }
+
   /** Snap the active row back to the vertical center (e.g. on play-resume). */
   recenter(): void {
     if (this.activeIndex >= 0) this.centerRow(this.activeIndex);

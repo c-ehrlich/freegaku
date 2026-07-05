@@ -18,7 +18,7 @@ export interface VideoTracksPayload {
   title: string;
   author: string;
   /** Which discovery tier produced the tracks. */
-  source: 'player' | 'innertube' | 'none';
+  source: 'player' | 'innertube' | 'netflix' | 'none';
   tracks: TrackInfo[];
   /** ytcfg INNERTUBE_CLIENT_NAME/_VERSION — timedtext wants c= and cver= params. */
   clientName?: string;
@@ -30,7 +30,10 @@ export type M2Message =
   | { source: typeof M2_SOURCE; type: 'refresh' }
   /** Player-sourced caption URL returned an empty body (bad/missing POT) —
    * ask the MAIN world for InnerTube-sourced tracks instead. */
-  | { source: typeof M2_SOURCE; type: 'fallback'; videoId: string };
+  | { source: typeof M2_SOURCE; type: 'fallback'; videoId: string }
+  /** Playback control relayed to the MAIN world (Netflix: only player.seek()
+   * is safe — setting video.currentTime breaks the cadmium player). */
+  | { source: typeof M2_SOURCE; type: 'control'; action: 'seek' | 'play' | 'pause'; ms?: number };
 
 // --- chrome.runtime messages (content script <-> service worker) ---
 
@@ -48,7 +51,14 @@ export interface MineRequestMessage {
   imageBase64: string | null;
   /** Raw text of the selected subtitle line(s), unescaped. */
   lines: string[];
-  video: { id: string; title: string; author: string; startSec: number };
+  video: {
+    id: string;
+    title: string;
+    author: string;
+    startSec: number;
+    /** Timestamped watch URL for the Origin field (site-specific). */
+    url: string;
+  };
 }
 
 export type MineResponse = { ok: true; word: string } | { ok: false; error: string };

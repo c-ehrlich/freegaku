@@ -15,6 +15,7 @@
     "@migaku2/subtitles": "workspace:*"
   },
   "devDependencies": {
+    "@types/chrome": "^0.2.2",
     "typescript": "^5.8.0",
     "wxt": "^0.20.27"
   }

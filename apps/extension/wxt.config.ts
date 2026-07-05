@@ -6,9 +6,22 @@ export default defineConfig({
   outDir: 'dist',
   manifest: {
     name: 'migaku2',
-    description: 'YouTube subtitle sidebar + Anki mining (personal build)',
-    permissions: ['storage'],
-    // AnkiConnect (milestone 3) — calls must come from the extension origin.
-    host_permissions: ['http://127.0.0.1:8765/*'],
+    description: 'YouTube/Netflix subtitle sidebar + Anki mining (personal build)',
+    // tabCapture + offscreen + activeTab: DRM-safe audio capture on Netflix.
+    permissions: ['storage', 'tabCapture', 'offscreen', 'activeTab'],
+    host_permissions: [
+      // AnkiConnect — calls must come from the extension origin.
+      'http://127.0.0.1:8765/*',
+      '*://www.netflix.com/*',
+    ],
+    commands: {
+      // A commands shortcut counts as "invoking" the extension, granting
+      // activeTab — which tabCapture and captureVisibleTab require. One press
+      // unlocks capture for the tab AND mines the current line.
+      'mine-current-line': {
+        suggested_key: { default: 'Alt+M' },
+        description: 'Mine the current subtitle line to Anki',
+      },
+    },
   },
 });

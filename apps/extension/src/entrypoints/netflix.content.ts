@@ -1,10 +1,9 @@
-import { parseSrv3 } from '@migaku2/subtitles';
+import { parseWebVtt } from '@migaku2/subtitles';
 import type { SubtitleCue } from '@migaku2/subtitles';
 import { M2_SOURCE, isM2Message } from '../lib/messages';
-import type { MineRequestMessage, MineResponse, VideoTracksPayload } from '../lib/messages';
-import type { MineMode } from '../lib/messages';
+import type { MineMode, MineRequestMessage, MineResponse, VideoTracksPayload } from '../lib/messages';
 import { blobToBase64 } from '../lib/blob';
-import { captureSpan } from '../lib/capture';
+import { captureNetflixSpan } from '../lib/capture-netflix';
 import { webmOpusToMp3 } from '../lib/mp3';
 import { Overlay } from '../lib/overlay';
 import { promptFront } from '../lib/prompt';
@@ -17,19 +16,63 @@ const STORAGE_SIDEBAR_VISIBLE = 'sidebarVisible';
 const STORAGE_OVERLAY_VISIBLE = 'overlayVisible';
 const MOUNT_CHECK_INTERVAL_MS = 1000;
 const TICK_MS = 250;
+const SIDEBAR_WIDTH_PX = 400;
+
+// Netflix is always dark and the sidebar is a full-height right panel that
+// reclaims space from the player (.watch-video--player-view is responsive
+// and relayouts when narrowed — the Language Reactor / Jelly-Party recipe).
+const NF_CSS = `
+#m2-sidebar.m2-nf {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: ${SIDEBAR_WIDTH_PX}px;
+  height: 100%;
+  margin: 0;
+  border-radius: 0;
+  background: #141414;
+  color: #f1f1f1;
+  display: flex;
+  flex-direction: column;
+  z-index: 20;
+}
+#m2-sidebar.m2-nf .m2-list {
+  max-height: none;
+  flex: 1;
+}
+#m2-sidebar.m2-nf .m2-status {
+  color: #aaa;
+}
+`;
+const SHRINK_CSS = `
+.watch-video--player-view {
+  width: calc(100vw - ${SIDEBAR_WIDTH_PX}px) !important;
+}
+`;
 
 export default defineContentScript({
-  matches: ['*://www.youtube.com/*', '*://m.youtube.com/*'],
+  matches: ['*://www.netflix.com/*'],
   runAt: 'document_idle',
   async main() {
-    console.debug('[m2] isolated script loaded', location.href);
+    console.debug('[m2:nf] isolated script loaded', location.href);
     const sidebar = new Sidebar();
+    sidebar.host.classList.add('m2-nf');
+    const nfStyle = document.createElement('style');
+    nfStyle.textContent = NF_CSS;
+    sidebar.host.append(nfStyle);
+    // Keep Netflix's idle detection working while the mouse is on our panel,
+    // so the player controls can fade out.
+    sidebar.host.addEventListener('mousemove', (e) => e.stopPropagation());
+
+    const shrinkStyle = document.createElement('style');
+    shrinkStyle.id = 'm2-nf-shrink';
+    shrinkStyle.textContent = SHRINK_CSS;
+
     const overlay = new Overlay();
     let payload: VideoTracksPayload | null = null;
     let cues: SubtitleCue[] = [];
     let trackIndex = -1;
     let video: HTMLVideoElement | null = null;
-    let fallbackRequestedFor: string | null = null;
     let mining = false;
     let wasPaused = true;
     let settings: M2Settings = await getSettings();
@@ -44,31 +87,26 @@ export default defineContentScript({
     sidebar.setVisible(sidebarVisible);
     overlay.setEnabled(overlayVisible);
 
+    function control(action: 'seek' | 'play' | 'pause', ms?: number): void {
+      window.postMessage({ source: M2_SOURCE, type: 'control', action, ms }, '*');
+    }
+
     sidebar.onSeek = (ms) => {
-      if (video) {
-        video.currentTime = ms / 1000;
-        void video.play().catch(() => {});
-      }
+      control('seek', ms);
+      control('play');
     };
     sidebar.onTrackChange = (i) => void loadTrack(i);
     sidebar.onRetry = () => {
       if (trackIndex >= 0) void loadTrack(trackIndex);
-      else requestTracks();
+      else window.postMessage({ source: M2_SOURCE, type: 'refresh' }, '*');
     };
     sidebar.onMine = (from, to, mode, selText) => void mine(from, to, mode, selText);
-
-    function requestTracks(): void {
-      window.postMessage({ source: M2_SOURCE, type: 'refresh' }, '*');
-    }
 
     function pickDefaultTrack(p: VideoTracksPayload): number {
       const score = (i: number): number => {
         const t = p.tracks[i]!;
-        const ja = t.languageCode.startsWith('ja');
-        if (ja && t.kind !== 'asr') return 0;
-        if (ja) return 1;
-        if (t.kind !== 'asr') return 2;
-        return 3;
+        if (t.languageCode.startsWith('ja')) return t.label.includes('(CC)') ? 1 : 0;
+        return 2;
       };
       let best = -1;
       for (let i = 0; i < p.tracks.length; i++) {
@@ -89,30 +127,15 @@ export default defineContentScript({
       sidebar.setStatus('Loading subtitles…');
       const forVideo = payload.videoId;
       try {
-        const url = new URL(track.url, location.origin);
-        url.searchParams.set('fmt', 'srv3');
-        if (payload.source === 'player' && payload.clientName) {
-          url.searchParams.set('c', payload.clientName);
-          if (payload.clientVersion) url.searchParams.set('cver', payload.clientVersion);
-        }
-        const res = await fetch(url.toString());
-        const xml = await res.text();
-        console.debug('[m2] track response:', res.status, `${xml.length} bytes`);
+        const res = await fetch(track.url);
+        const vtt = await res.text();
+        console.debug('[m2:nf] track response:', res.status, `${vtt.length} bytes`);
         if (payload?.videoId !== forVideo || trackIndex !== index) return; // stale
-        if (!res.ok || xml.length === 0) {
-          // Empty 200 = missing/invalid POT on the player-sourced URL. Ask the
-          // MAIN world for InnerTube (ANDROID) tracks, whose URLs need no POT.
-          if (payload.source === 'player' && fallbackRequestedFor !== forVideo) {
-            fallbackRequestedFor = forVideo;
-            console.debug('[m2] player track empty; requesting InnerTube fallback');
-            sidebar.setStatus('Retrying via fallback…');
-            window.postMessage({ source: M2_SOURCE, type: 'fallback', videoId: forVideo }, '*');
-          } else {
-            sidebar.setStatus('Subtitles came back empty (YouTube token issue).', true);
-          }
+        if (!res.ok || vtt.length === 0) {
+          sidebar.setStatus('Subtitle download came back empty.', true);
           return;
         }
-        const parsed = parseSrv3(xml);
+        const parsed = parseWebVtt(vtt);
         if (parsed.length === 0) {
           sidebar.setStatus('Track contained no usable lines.', true);
           return;
@@ -128,16 +151,16 @@ export default defineContentScript({
     }
 
     function onTracksPayload(p: VideoTracksPayload): void {
-      console.debug('[m2] tracks payload', p.videoId, p.source, p.tracks.length);
+      console.debug('[m2:nf] tracks payload', p.videoId, p.tracks.length);
       const isNewVideo = p.videoId !== payload?.videoId;
       payload = p;
       if (p.videoId === null) {
         sidebar.host.remove();
+        shrinkStyle.remove();
         overlay.setText(null);
         return;
       }
       if (isNewVideo) {
-        fallbackRequestedFor = null;
         cues = [];
         overlay.setText(null);
       }
@@ -148,8 +171,7 @@ export default defineContentScript({
         sidebar.setTracks([], -1);
         sidebar.setCues([]);
         sidebar.setStatus(
-          p.source === 'none' ? 'No subtitles found for this video.' : 'No subtitle tracks.',
-          true,
+          'Waiting for Netflix subtitle manifest… (reload the page if this persists)',
         );
         return;
       }
@@ -173,15 +195,11 @@ export default defineContentScript({
         showToast('Already capturing — wait for the current card.', 'error');
         return;
       }
-      // Fail fast while nothing has happened yet: an unreachable Anki should
-      // not cost an audible replay.
       const ping = (await browser.runtime.sendMessage({ type: 'm2-anki-check' })) as MineResponse;
       if (!ping.ok) {
         showToast(ping.error, 'error');
         return;
       }
-      // Ask for the Front before the (audible) capture starts, so Escape
-      // costs nothing.
       let front: string | null = null;
       if (mode === 'basic') {
         front = await promptFront(selText);
@@ -192,7 +210,7 @@ export default defineContentScript({
       try {
         const startMs = span[0]!.start;
         const endMs = span[span.length - 1]!.end;
-        const { audioWebm, imageJpeg } = await captureSpan(video, startMs, endMs, {
+        const { audioWebm, imageJpeg } = await captureNetflixSpan(video, startMs, endMs, {
           padStartMs: settings.padStartMs,
           padEndMs: settings.padEndMs,
           imageMaxWidth: settings.imageMaxWidth,
@@ -211,7 +229,7 @@ export default defineContentScript({
             title: payload.title,
             author: payload.author,
             startSec: Math.floor(startMs / 1000),
-            url: `https://youtu.be/${payload.videoId}?t=${Math.floor(startMs / 1000)}`,
+            url: `https://www.netflix.com/watch/${payload.videoId}?t=${Math.floor(startMs / 1000)}`,
           },
         };
         const res = (await browser.runtime.sendMessage(message)) as MineResponse;
@@ -236,20 +254,18 @@ export default defineContentScript({
 
     function ensureMounted(): void {
       if (!payload?.videoId) return;
-      if (!sidebar.host.isConnected) {
-        // #secondary is the related-videos column on watch pages. Absent in
-        // theater/fullscreen and on shorts — sidebar simply stays unmounted
-        // there; the overlay covers those modes.
-        const secondary = document.querySelector('#secondary');
-        if (secondary) secondary.prepend(sidebar.host);
-      }
-      const player = document.querySelector<HTMLElement>('#movie_player');
-      if (player) overlay.mount(player);
-      const currentVideo = document.querySelector<HTMLVideoElement>('video.html5-main-video');
+      const watchVideo = document.querySelector<HTMLElement>('.watch-video');
+      if (!watchVideo) return;
+      if (!sidebar.host.isConnected) watchVideo.append(sidebar.host);
+      // Shrink the player only while the sidebar is actually shown.
+      if (sidebarVisible && !shrinkStyle.isConnected) document.head.append(shrinkStyle);
+      if (!sidebarVisible) shrinkStyle.remove();
+      const playerView = document.querySelector<HTMLElement>('.watch-video--player-view');
+      if (playerView) overlay.mount(playerView);
+      const currentVideo = document.querySelector<HTMLVideoElement>('.watch-video video, video');
       if (currentVideo !== video) video = currentVideo;
     }
 
-    /** Cue strictly containing t — the overlay mimics real captions. */
     function cueAt(tMs: number): SubtitleCue | null {
       for (const c of cues) {
         if (c.start > tMs) break;
@@ -263,7 +279,8 @@ export default defineContentScript({
       if (e.data.type === 'tracks') onTracksPayload(e.data.payload);
     });
 
-    // Alt+M (extension command): mine the current line.
+    // Alt+M (extension command): mine the current line. The command also
+    // grants activeTab, which the tabCapture/captureVisibleTab paths require.
     browser.runtime.onMessage.addListener((msg: { type?: string }) => {
       if (msg?.type !== 'm2-mine-current') return;
       const i = sidebar.activeCueIndex;
@@ -287,9 +304,11 @@ export default defineContentScript({
           return;
         }
         e.preventDefault();
+        e.stopPropagation();
         if (e.code === sidebarCode) {
           sidebarVisible = !sidebarVisible;
           sidebar.setVisible(sidebarVisible);
+          ensureMounted();
           void browser.storage.local.set({ [STORAGE_SIDEBAR_VISIBLE]: sidebarVisible });
         } else {
           overlayVisible = !overlayVisible;
@@ -301,22 +320,17 @@ export default defineContentScript({
     );
 
     setInterval(ensureMounted, MOUNT_CHECK_INTERVAL_MS);
-    // Poll instead of listening to timeupdate: immune to element swaps and
-    // fires reliably after seeks-while-paused too.
     setInterval(() => {
       if (!video) return;
       const tMs = video.currentTime * 1000;
       const playing = !video.paused;
       if (sidebarVisible) {
-        // Autoscroll (centered) only while playing; while paused the user may
-        // be browsing the list — snap back to center on resume.
         sidebar.updateTime(tMs, playing);
         if (playing && wasPaused) sidebar.recenter();
       }
       wasPaused = !playing;
       overlay.setText(cueAt(tMs)?.text ?? null);
     }, TICK_MS);
-    requestTracks();
+    window.postMessage({ source: M2_SOURCE, type: 'refresh' }, '*');
   },
 });
-

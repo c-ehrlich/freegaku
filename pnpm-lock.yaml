@@ -24,6 +24,9 @@ importers:
         specifier: workspace:*
         version: link:../../packages/subtitles
     devDependencies:
+      '@types/chrome':
+        specifier: ^0.2.2
+        version: 0.2.2
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
@@ -907,6 +910,13 @@ packages:
     dependencies:
       '@types/deep-eql': 4.0.2
       assertion-error: 2.0.1
+    dev: true
+
+  /@types/chrome@0.2.2:
+    resolution: {integrity: sha512-8rSMZ4cvo2xmaSyQg0sN5yRL7oiDkntLoiHxUhfwQnv1mvnkrdoZ25SlNrKWmYKaeP50WvrfWj1pmc02+U9KKw==}
+    dependencies:
+      '@types/filesystem': 0.0.36
+      '@types/har-format': 1.2.16
     dev: true
 
   /@types/deep-eql@4.0.2:
