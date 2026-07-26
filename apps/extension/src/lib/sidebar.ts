@@ -1,5 +1,19 @@
 import type { SubtitleCue } from '@migaku2/subtitles';
+import { CaptureEditor } from './capture-editor';
+import type { CaptureEditorOptions } from './capture-editor';
 import type { TrackInfo } from './messages';
+
+export interface SidebarMineRequest {
+  from: number;
+  to: number;
+  mode: 'update' | 'basic';
+  selText: string;
+  /** Text dragging opens the timing editor; row ＋ and Alt+M stay one-step. */
+  adjust: boolean;
+  /** Character offsets within the first/last touched cue. */
+  startOffset?: number;
+  endOffset?: number;
+}
 
 // Plain DOM, no shadow root: Yomitan must be able to scan the subtitle text,
 // and shadow-root piercing is not something we can rely on. All styles are
@@ -87,6 +101,10 @@ html[dark] #m2-sidebar .m2-status {
   overflow-y: auto;
   padding: 6px;
 }
+#m2-sidebar.m2-editing .m2-list {
+  max-height: calc(100vh - 530px);
+  min-height: 80px;
+}
 #m2-sidebar .m2-row {
   display: flex;
   gap: 10px;
@@ -112,6 +130,8 @@ html[dark] #m2-sidebar .m2-status {
   min-width: 40px;
   text-align: right;
   flex: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 #m2-sidebar .m2-text {
   flex: 1;
@@ -137,6 +157,8 @@ html[dark] #m2-sidebar .m2-status {
   padding: 0;
   opacity: 0;
   transition: opacity 0.12s;
+  user-select: none;
+  -webkit-user-select: none;
 }
 #m2-sidebar .m2-row:hover .m2-add {
   opacity: 1;
@@ -169,12 +191,13 @@ export class Sidebar {
   private readonly selectEl: HTMLSelectElement;
   private readonly statusEl: HTMLElement;
   private readonly chipEl: HTMLButtonElement;
+  private readonly captureEditor: CaptureEditor;
   private genEl!: HTMLButtonElement;
   private rows: HTMLElement[] = [];
   private cues: SubtitleCue[] = [];
   private activeIndex = -1;
   private hovering = false;
-  private chipSpan: { from: number; to: number } | null = null;
+  private chipSpan: SidebarMineRequest | null = null;
 
   onSeek?: (ms: number) => void;
   onTrackChange?: (index: number) => void;
@@ -182,7 +205,7 @@ export class Sidebar {
   /** Mine cue lines [from..to] (inclusive; from === to for a single line).
    * mode 'basic' (Alt+click) creates a standalone Basic card; selText is the
    * text that was selected when the action fired (Front prefill). */
-  onMine?: (from: number, to: number, mode: 'update' | 'basic', selText: string) => void;
+  onMine?: (request: SidebarMineRequest) => void;
   /** ✨ button: start (or stop, while running) Whisper generation. */
   onGenerate?: () => void;
 
@@ -225,7 +248,9 @@ export class Sidebar {
     this.listEl.addEventListener('mouseenter', () => (this.hovering = true));
     this.listEl.addEventListener('mouseleave', () => (this.hovering = false));
 
-    // Floating "+ Add N lines" chip shown while a selection spans rows.
+    this.captureEditor = new CaptureEditor();
+
+    // Floating adjustment chip shown for any subtitle text selection.
     // position: fixed escapes the host's overflow clipping.
     this.chipEl = document.createElement('button');
     this.chipEl.id = 'm2-chip';
@@ -233,17 +258,18 @@ export class Sidebar {
     this.chipEl.addEventListener('mousedown', (e) => e.preventDefault());
     this.chipEl.addEventListener('click', (e) => {
       const span = this.chipSpan;
-      const selText = window.getSelection()?.toString().trim() ?? '';
       this.hideChip();
       window.getSelection()?.removeAllRanges();
-      if (span) this.onMine?.(span.from, span.to, e.altKey ? 'basic' : 'update', selText);
+      if (span) {
+        this.onMine?.({ ...span, mode: e.altKey ? 'basic' : 'update' });
+      }
     });
     document.addEventListener('selectionchange', () => {
       clearTimeout(this.selDebounce);
       this.selDebounce = window.setTimeout(() => this.updateChip(), 150);
     });
 
-    this.host.append(header, this.statusEl, this.listEl, this.chipEl);
+    this.host.append(header, this.statusEl, this.listEl, this.captureEditor.host, this.chipEl);
   }
 
   private selDebounce: number | undefined;
@@ -261,6 +287,7 @@ export class Sidebar {
   }
 
   setCues(cues: SubtitleCue[]): void {
+    this.cancelCaptureEditor();
     this.cues = cues;
     this.activeIndex = -1;
     this.hideChip();
@@ -289,7 +316,13 @@ export class Sidebar {
       add.title = 'Add audio + screenshot to the last mined Anki card\nAlt+click: new Basic card';
       add.addEventListener('click', (e) => {
         const selText = window.getSelection()?.toString().trim() ?? '';
-        this.onMine?.(i, i, e.altKey ? 'basic' : 'update', selText);
+        this.onMine?.({
+          from: i,
+          to: i,
+          mode: e.altKey ? 'basic' : 'update',
+          selText,
+          adjust: false,
+        });
       });
 
       row.append(time, text, add);
@@ -327,7 +360,7 @@ export class Sidebar {
     this.activeIndex = next;
     if (next >= 0) {
       this.rows[next]?.classList.add('m2-active');
-      if (autoscroll && !this.hovering) this.centerRow(next);
+      if (autoscroll && !this.hovering && !this.captureEditor.isOpen) this.centerRow(next);
     }
   }
 
@@ -338,7 +371,7 @@ export class Sidebar {
 
   /** Snap the active row back to the vertical center (e.g. on play-resume). */
   recenter(): void {
-    if (this.activeIndex >= 0) this.centerRow(this.activeIndex);
+    if (this.activeIndex >= 0 && !this.captureEditor.isOpen) this.centerRow(this.activeIndex);
   }
 
   setRowBusy(from: number, to: number, busy: boolean): void {
@@ -353,7 +386,35 @@ export class Sidebar {
 
   setVisible(visible: boolean): void {
     this.host.style.display = visible ? '' : 'none';
-    if (!visible) this.hideChip();
+    if (!visible) {
+      this.hideChip();
+      this.cancelCaptureEditor();
+    }
+  }
+
+  showCaptureEditor(options: CaptureEditorOptions): void {
+    this.host.classList.add('m2-editing');
+    this.captureEditor.open({
+      ...options,
+      onConfirm: async (draft) => {
+        const shouldClose = await options.onConfirm(draft);
+        if (shouldClose) this.host.classList.remove('m2-editing');
+        return shouldClose;
+      },
+      onCancel: () => {
+        this.host.classList.remove('m2-editing');
+        options.onCancel();
+      },
+    });
+  }
+
+  closeCaptureEditor(): void {
+    this.captureEditor.close();
+    this.host.classList.remove('m2-editing');
+  }
+
+  cancelCaptureEditor(): void {
+    if (this.captureEditor.isOpen) this.captureEditor.cancel();
   }
 
   private centerRow(i: number): void {
@@ -373,7 +434,11 @@ export class Sidebar {
     const sel = window.getSelection();
     const rect = sel!.getRangeAt(0).getBoundingClientRect();
     this.chipSpan = span;
-    this.chipEl.textContent = `＋ Add ${span.to - span.from + 1} lines`;
+    this.chipEl.textContent = '✂ Adjust & add';
+    this.chipEl.title =
+      span.from === span.to
+        ? 'Adjust audio and screenshot timing for this selection'
+        : `Adjust audio and screenshot timing for ${span.to - span.from + 1} lines`;
     this.chipEl.style.left = `${rect.left + rect.width / 2}px`;
     this.chipEl.style.top = `${rect.bottom + 8}px`;
     this.chipEl.style.display = 'block';
@@ -384,21 +449,46 @@ export class Sidebar {
     this.chipEl.style.display = 'none';
   }
 
-  /** Row span of the current text selection, if it covers 2+ rows in the list. */
-  private selectionSpan(): { from: number; to: number } | null {
+  /** Cue span and endpoint offsets for any non-empty subtitle text selection. */
+  private selectionSpan(): SidebarMineRequest | null {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
+    if (sel.toString().trim().length === 0) return null;
     const range = sel.getRangeAt(0);
-    const rowIndex = (node: Node | null): number => {
+    const textElement = (node: Node | null): HTMLElement | null => {
       const el = node instanceof Element ? node : (node?.parentElement ?? null);
-      const row = el?.closest<HTMLElement>('.m2-row');
-      if (!row || !this.listEl.contains(row)) return -1;
-      return Number(row.dataset.i);
+      const text = el?.closest<HTMLElement>('.m2-text') ?? null;
+      return text && this.listEl.contains(text) ? text : null;
     };
-    const a = rowIndex(range.startContainer);
-    const b = rowIndex(range.endContainer);
-    if (a < 0 || b < 0 || a === b) return null;
-    return { from: Math.min(a, b), to: Math.max(a, b) };
+    const startText = textElement(range.startContainer);
+    const endText = textElement(range.endContainer);
+    if (!startText || !endText) return null;
+    const startRow = startText.closest<HTMLElement>('.m2-row');
+    const endRow = endText.closest<HTMLElement>('.m2-row');
+    if (!startRow || !endRow) return null;
+    const from = Number(startRow.dataset.i);
+    const to = Number(endRow.dataset.i);
+    if (!Number.isInteger(from) || !Number.isInteger(to) || from > to) return null;
+    return {
+      from,
+      to,
+      mode: 'update',
+      selText: sel.toString().trim(),
+      adjust: true,
+      startOffset: offsetWithin(startText, range.startContainer, range.startOffset),
+      endOffset: offsetWithin(endText, range.endContainer, range.endOffset),
+    };
+  }
+}
+
+function offsetWithin(root: HTMLElement, node: Node, offset: number): number {
+  const range = document.createRange();
+  range.selectNodeContents(root);
+  try {
+    range.setEnd(node, offset);
+    return range.toString().length;
+  } catch {
+    return 0;
   }
 }
 

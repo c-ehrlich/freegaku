@@ -14,8 +14,10 @@ asbplayer and Animebook.
    An **overlay** renders the current line over the video (Yomitan-scannable).
 2. Mine a word from the sidebar or overlay text with **Yomitan** as usual (fills Word,
    Reading, Pitch, Glossary, Sentence on a `MINING: 単語` / `MINING: 文法` note).
-3. Click **+** on the line (or shift-click to select a range, then the shared +). The
-   extension captures sentence audio and a screenshot, finds the newest MINING note via
+3. Click **+** on the line for a one-step add, or drag-select text within/across lines
+   and click **Adjust & add** to trim the audio range, preview it, and choose a screenshot
+   frame within that local range. The extension captures sentence audio and a screenshot,
+   finds the newest MINING note via
    AnkiConnect, and fills:
    - `Sentence-Audio` — `[sound:...]` MP3 clip of the selected span (± padding)
    - `Image` — video frame from the middle of the span (JPEG)

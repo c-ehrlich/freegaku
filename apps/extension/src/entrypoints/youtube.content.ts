@@ -2,17 +2,20 @@ import { parseSrv3 } from '@migaku2/subtitles';
 import type { SubtitleCue } from '@migaku2/subtitles';
 import { M2_SOURCE, isM2Message } from '../lib/messages';
 import type { MineRequestMessage, MineResponse, VideoTracksPayload } from '../lib/messages';
-import type { MineMode } from '../lib/messages';
 import { blobToBase64 } from '../lib/blob';
+import type { CaptureDraft } from '../lib/capture-editor';
+import { captureTimingForSelection } from '../lib/capture-timing';
 import { captureSpan } from '../lib/capture';
 import { GenerationSession, elementChunkRecorder, loadGenCues, saveGenCues } from '../lib/generate';
 import type { Segment } from '../lib/generate';
 import { webmOpusToMp3 } from '../lib/mp3';
 import { Overlay } from '../lib/overlay';
+import { PlaybackPreviewSession } from '../lib/playback-preview';
 import { promptFront } from '../lib/prompt';
 import { getSettings, onSettingsChanged } from '../lib/settings';
 import type { M2Settings } from '../lib/settings';
 import { Sidebar } from '../lib/sidebar';
+import type { SidebarMineRequest } from '../lib/sidebar';
 import { showToast } from '../lib/toast';
 
 const STORAGE_SIDEBAR_VISIBLE = 'sidebarVisible';
@@ -37,6 +40,7 @@ export default defineContentScript({
     let gen: GenerationSession | null = null;
     let genCues: SubtitleCue[] = [];
     let genSelected = false;
+    let previewSession: PlaybackPreviewSession | null = null;
     let settings: M2Settings = await getSettings();
     onSettingsChanged((s) => (settings = s));
 
@@ -63,7 +67,10 @@ export default defineContentScript({
       if (trackIndex >= 0) void loadTrack(trackIndex);
       else requestTracks();
     };
-    sidebar.onMine = (from, to, mode, selText) => void mine(from, to, mode, selText);
+    sidebar.onMine = (request) => {
+      if (request.adjust) openCaptureEditor(request);
+      else void mine(request);
+    };
     sidebar.onGenerate = () => {
       if (gen) gen.stop();
       else void startGeneration();
@@ -271,48 +278,90 @@ export default defineContentScript({
       }
     }
 
+    function openCaptureEditor(request: SidebarMineRequest): void {
+      if (!video || previewSession) return;
+      const span = cues.slice(request.from, request.to + 1);
+      const timing = captureTimingForSelection(
+        span,
+        { startOffset: request.startOffset, endOffset: request.endOffset },
+      );
+      if (!timing) return;
+
+      const editorVideo = video;
+      const session = new PlaybackPreviewSession({
+        video: editorVideo,
+        pause: () => editorVideo.pause(),
+        play: () => {
+          void editorVideo.play().catch(() => {});
+        },
+        seek: (timeMs) => {
+          editorVideo.currentTime = timeMs / 1000;
+        },
+      });
+      previewSession = session;
+      overlay.setEnabled(false);
+      sidebar.showCaptureEditor({
+        ...timing,
+        selectedLineCount: span.length,
+        onFrameChange: (timeMs) => session.showFrame(timeMs),
+        onPreviewAudio: (draft) =>
+          session.playRange(draft.startMs, draft.endMs, draft.imageMs),
+        onConfirm: async (draft) => {
+          const attempted = await mine(request, draft);
+          if (!attempted) return false;
+          if (previewSession === session) previewSession = null;
+          await session.restore();
+          overlay.setEnabled(overlayVisible);
+          return true;
+        },
+        onCancel: () => {
+          if (previewSession === session) previewSession = null;
+          void session.restore().finally(() => overlay.setEnabled(overlayVisible));
+        },
+      });
+    }
+
     async function mine(
-      from: number,
-      to: number,
-      mode: MineMode = 'update',
-      selText = '',
-    ): Promise<void> {
-      if (!payload?.videoId || !video) return;
-      const span = cues.slice(from, to + 1);
-      if (span.length === 0) return;
+      request: SidebarMineRequest,
+      adjusted?: CaptureDraft,
+    ): Promise<boolean> {
+      if (!payload?.videoId || !video) return false;
+      const span = cues.slice(request.from, request.to + 1);
+      if (span.length === 0) return false;
       if (mining) {
         showToast('Already capturing — wait for the current card.', 'error');
-        return;
+        return false;
       }
       // Fail fast while nothing has happened yet: an unreachable Anki should
       // not cost an audible replay.
       const ping = (await browser.runtime.sendMessage({ type: 'm2-anki-check' })) as MineResponse;
       if (!ping.ok) {
         showToast(ping.error, 'error');
-        return;
+        return false;
       }
       // Ask for the Front before the (audible) capture starts, so Escape
       // costs nothing.
       let front: string | null = null;
-      if (mode === 'basic') {
-        front = await promptFront(selText);
-        if (!front) return;
+      if (request.mode === 'basic') {
+        front = await promptFront(request.selText);
+        if (!front) return false;
       }
       mining = true;
-      sidebar.setRowBusy(from, to, true);
+      sidebar.setRowBusy(request.from, request.to, true);
       try {
-        const startMs = span[0]!.start;
-        const endMs = span[span.length - 1]!.end;
+        const startMs = adjusted?.startMs ?? span[0]!.start;
+        const endMs = adjusted?.endMs ?? span[span.length - 1]!.end;
         const { audioWebm, imageJpeg } = await captureSpan(video, startMs, endMs, {
-          padStartMs: settings.padStartMs,
-          padEndMs: settings.padEndMs,
+          padStartMs: adjusted ? 0 : settings.padStartMs,
+          padEndMs: adjusted ? 0 : settings.padEndMs,
+          imageTimeMs: adjusted?.imageMs,
           imageMaxWidth: settings.imageMaxWidth,
           jpegQuality: settings.jpegQuality,
         });
         const mp3 = await webmOpusToMp3(audioWebm);
         const message: MineRequestMessage = {
           type: 'm2-mine',
-          mode,
+          mode: request.mode,
           front: front ?? undefined,
           audioBase64: await blobToBase64(mp3),
           imageBase64: imageJpeg ? await blobToBase64(imageJpeg) : null,
@@ -328,7 +377,7 @@ export default defineContentScript({
         const res = (await browser.runtime.sendMessage(message)) as MineResponse;
         if (res.ok) {
           showToast(
-            mode === 'basic'
+            request.mode === 'basic'
               ? `Created Basic card “${front}” ✓`
               : res.word
                 ? `Added to 「${res.word}」 ✓`
@@ -341,8 +390,9 @@ export default defineContentScript({
         showToast(e instanceof Error ? e.message : String(e), 'error');
       } finally {
         mining = false;
-        sidebar.setRowBusy(from, to, false);
+        sidebar.setRowBusy(request.from, request.to, false);
       }
+      return true;
     }
 
     function ensureMounted(): void {
@@ -378,7 +428,9 @@ export default defineContentScript({
     browser.runtime.onMessage.addListener((msg: { type?: string }) => {
       if (msg?.type !== 'm2-mine-current') return;
       const i = sidebar.activeCueIndex;
-      if (i >= 0) void mine(i, i);
+      if (i >= 0) {
+        void mine({ from: i, to: i, mode: 'update', selText: '', adjust: false });
+      }
       else showToast('No active subtitle line to mine.', 'error');
     });
 
@@ -430,4 +482,3 @@ export default defineContentScript({
     requestTracks();
   },
 });
-

@@ -59,8 +59,11 @@ Right-click the Freegaku toolbar icon → **Options** (opens in a tab):
 | Toggle sidebar / overlay | `Alt+G` / `Alt+S` |
 | Mine a line | mine the word with Yomitan (hover text in the sidebar), then click the line's **＋** |
 | Mine current line | `Alt+M` (rebindable at `chrome://extensions/shortcuts`) |
-| Mine several lines | select text across lines → click the floating chip |
+| Precisely mine selected text | drag-select within one line or across lines → **Adjust & add** → trim audio and choose the screenshot frame |
 | Quick standalone card | `Alt`+click a **＋** |
+
+The row **＋** remains a one-step add using the configured padding and midpoint
+screenshot. The timing editor opens only after a text drag-selection.
 
 **Netflix:** press `Alt+M` once per browser session before mining — tab
 capture (how audio is recorded under DRM) requires that one explicit

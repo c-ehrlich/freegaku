@@ -7,6 +7,8 @@
 export interface CaptureOptions {
   padStartMs?: number;
   padEndMs?: number;
+  /** Explicit screenshot time; defaults to the final audio range midpoint. */
+  imageTimeMs?: number;
   imageMaxWidth?: number;
   jpegQuality?: number;
 }
@@ -33,6 +35,10 @@ export async function captureSpan(
     (endMs + (opts.padEndMs ?? 500)) / 1000,
   );
   if (!(t1 > t0)) throw new Error('Invalid capture range');
+  const imageTime =
+    opts.imageTimeMs === undefined
+      ? (t0 + t1) / 2
+      : Math.min(t1, Math.max(t0, opts.imageTimeMs / 1000));
 
   const captureStream = (video as CapturableVideo).captureStream?.bind(video);
   if (!captureStream) throw new Error('captureStream unsupported on this video');
@@ -60,7 +66,7 @@ export async function captureSpan(
     // Hard cap in case the video stalls: span duration + generous slack.
     const capMs = ((t1 - t0) / (video.playbackRate || 1)) * 1000 + 8000;
     const deadline = performance.now() + capMs;
-    await waitUntilTime(video, (t0 + t1) / 2, deadline);
+    await waitUntilTime(video, imageTime, deadline);
     imageJpeg = await grabFrame(video, opts).catch(() => null);
     await waitUntilTime(video, t1, deadline);
   } finally {

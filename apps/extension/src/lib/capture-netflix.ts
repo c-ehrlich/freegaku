@@ -11,6 +11,8 @@ import { M2_SOURCE } from './messages';
 export interface NetflixCaptureOptions {
   padStartMs?: number;
   padEndMs?: number;
+  /** Explicit screenshot time; defaults to the final audio range midpoint. */
+  imageTimeMs?: number;
   imageMaxWidth?: number;
   jpegQuality?: number;
 }
@@ -33,6 +35,7 @@ export async function captureNetflixSpan(
   const t0 = Math.max(0, startMs - (opts.padStartMs ?? 500));
   const t1 = endMs + (opts.padEndMs ?? 500);
   if (!(t1 > t0)) throw new Error('Invalid capture range');
+  const imageTime = Math.min(t1, Math.max(t0, opts.imageTimeMs ?? (t0 + t1) / 2));
   const prev = { ms: video.currentTime * 1000, paused: video.paused };
 
   let recording = false;
@@ -55,7 +58,7 @@ export async function captureNetflixSpan(
 
     const deadline =
       performance.now() + (t1 - t0) / (video.playbackRate || 1) + 10_000;
-    await waitUntilTime(video, (t0 + t1) / 2, deadline);
+    await waitUntilTime(video, imageTime, deadline);
     imageJpeg = await grabNetflixFrame(video, opts).catch(() => null);
     await waitUntilTime(video, t1, deadline);
     control('pause');
