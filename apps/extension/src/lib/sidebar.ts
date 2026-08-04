@@ -2,6 +2,7 @@ import type { SubtitleCue } from '@migaku2/subtitles';
 import { CaptureEditor } from './capture-editor';
 import type { CaptureEditorOptions } from './capture-editor';
 import type { TrackInfo } from './messages';
+import { showToast } from './toast';
 
 export interface SidebarMineRequest {
   from: number;
@@ -61,7 +62,7 @@ html[dark] #m2-sidebar {
   color: initial;
   background: initial;
 }
-#m2-sidebar .m2-gen {
+#m2-sidebar .m2-header-action {
   flex: none;
   width: 28px;
   height: 28px;
@@ -74,8 +75,12 @@ html[dark] #m2-sidebar {
   cursor: pointer;
   padding: 0;
 }
-#m2-sidebar .m2-gen:hover {
+#m2-sidebar .m2-header-action:hover:not(:disabled) {
   background: rgba(128, 128, 128, 0.2);
+}
+#m2-sidebar .m2-header-action:disabled {
+  cursor: default;
+  opacity: 0.35;
 }
 #m2-sidebar .m2-status {
   padding: 14px 12px;
@@ -193,6 +198,8 @@ export class Sidebar {
   private readonly chipEl: HTMLButtonElement;
   private readonly captureEditor: CaptureEditor;
   private genEl!: HTMLButtonElement;
+  private copyEl!: HTMLButtonElement;
+  private copyResetTimeout: number | undefined;
   private rows: HTMLElement[] = [];
   private cues: SubtitleCue[] = [];
   private activeIndex = -1;
@@ -233,11 +240,19 @@ export class Sidebar {
       this.onTrackChange?.(this.selectEl.selectedIndex);
     });
     this.genEl = document.createElement('button');
-    this.genEl.className = 'm2-gen';
+    this.genEl.className = 'm2-header-action m2-gen';
     this.genEl.textContent = '✨';
     this.genEl.title = 'Generate subtitles with Whisper';
+    this.genEl.ariaLabel = 'Generate subtitles with Whisper';
     this.genEl.addEventListener('click', () => this.onGenerate?.());
-    header.append(title, this.selectEl, this.genEl);
+    this.copyEl = document.createElement('button');
+    this.copyEl.className = 'm2-header-action m2-copy';
+    this.copyEl.textContent = '📋';
+    this.copyEl.title = 'No subtitles to copy';
+    this.copyEl.ariaLabel = 'Copy all subtitles';
+    this.copyEl.disabled = true;
+    this.copyEl.addEventListener('click', () => void this.copySubtitles());
+    header.append(title, this.selectEl, this.genEl, this.copyEl);
 
     this.statusEl = document.createElement('div');
     this.statusEl.className = 'm2-status';
@@ -289,6 +304,8 @@ export class Sidebar {
   setCues(cues: SubtitleCue[]): void {
     this.cancelCaptureEditor();
     this.cues = cues;
+    this.copyEl.disabled = cues.length === 0;
+    this.copyEl.title = cues.length === 0 ? 'No subtitles to copy' : 'Copy all subtitles';
     this.activeIndex = -1;
     this.hideChip();
     this.rows = cues.map((cue, i) => {
@@ -425,6 +442,26 @@ export class Sidebar {
     this.listEl.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
   }
 
+  private async copySubtitles(): Promise<void> {
+    const text = this.cues
+      .map((cue) => cue.text.replace(/[\r\n]+/g, ' ').trim())
+      .filter(Boolean)
+      .join('\n');
+    if (!text) return;
+
+    try {
+      await writeClipboard(text);
+      window.clearTimeout(this.copyResetTimeout);
+      this.copyEl.textContent = '✓';
+      this.copyResetTimeout = window.setTimeout(() => {
+        this.copyEl.textContent = '📋';
+      }, 1500);
+      showToast(`Copied ${this.cues.length} subtitle lines`);
+    } catch {
+      showToast('Could not copy subtitles to the clipboard.', 'error');
+    }
+  }
+
   private updateChip(): void {
     const span = this.selectionSpan();
     if (!span) {
@@ -479,6 +516,31 @@ export class Sidebar {
       endOffset: offsetWithin(endText, range.endContainer, range.endOffset),
     };
   }
+}
+
+async function writeClipboard(text: string): Promise<void> {
+  try {
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch {
+    // Fall back for browsers that expose Clipboard API but deny it to content scripts.
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  Object.assign(textarea.style, {
+    position: 'fixed',
+    left: '-9999px',
+    opacity: '0',
+  } satisfies Partial<CSSStyleDeclaration>);
+  document.body.append(textarea);
+  textarea.select();
+  const copied = document.execCommand('copy');
+  textarea.remove();
+  if (!copied) throw new Error('Clipboard copy failed');
 }
 
 function offsetWithin(root: HTMLElement, node: Node, offset: number): number {
