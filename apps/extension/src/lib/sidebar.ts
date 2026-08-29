@@ -31,9 +31,29 @@ const CSS = `
   color: #0f0f0f;
   overflow: hidden;
 }
+#m2-sidebar.m2-floating {
+  position: fixed;
+  top: 72px;
+  right: 16px;
+  z-index: 2147482000;
+  box-sizing: border-box;
+  min-width: 0;
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100vh - 88px);
+  margin: 0;
+  background: #fff;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+:fullscreen #m2-sidebar.m2-floating {
+  top: 16px;
+  max-height: calc(100vh - 32px);
+}
 html[dark] #m2-sidebar {
   background: rgba(255, 255, 255, 0.08);
   color: #f1f1f1;
+}
+html[dark] #m2-sidebar.m2-floating {
+  background: #212121;
 }
 #m2-sidebar .m2-header {
   display: flex;
@@ -106,9 +126,15 @@ html[dark] #m2-sidebar .m2-status {
   overflow-y: auto;
   padding: 6px;
 }
+#m2-sidebar.m2-floating .m2-list {
+  max-height: calc(100vh - 220px);
+}
 #m2-sidebar.m2-editing .m2-list {
   max-height: calc(100vh - 530px);
   min-height: 80px;
+}
+#m2-sidebar.m2-floating.m2-editing .m2-list {
+  max-height: calc(100vh - 470px);
 }
 #m2-sidebar .m2-row {
   display: flex;

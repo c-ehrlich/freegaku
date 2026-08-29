@@ -42,7 +42,7 @@ prefilled from text selection); Back = sentence + audio + image + origin. Kept o
 | Yomitan | No direct integration. Yomitan scans our DOM text; its own AnkiConnect config creates the card. We only enrich it. |
 | Languages | Japanese-tuned defaults; Basic-card flow for anything else. |
 | ASR captions | Keep YouTube's own line segmentation (`fmt=srv3`), clamp rolling-caption overlaps (asbplayer's trick). No sentence-merge heuristics. |
-| UI | Sidebar (docked in `#secondary`) **and** on-video overlay. Independently toggleable: **Alt+S** overlay, **Alt+G** sidebar. Toggle state remembered globally (`chrome.storage.local`). |
+| UI | Sidebar (docked in visible `#secondary`, with a floating fallback) **and** on-video overlay. Independently toggleable: **Alt+S** overlay, browser-level **Alt+T** sidebar. Toggle state remembered globally (`chrome.storage.local`). |
 | Audio | Replay the span in real time, record via `video.captureStream()` + MediaRecorder (opus/webm), encode to **MP3** (mobile Anki compatibility). Audible replay, resume playback position after. Default padding ±0.5 s, configurable. |
 | Screenshot | Canvas `drawImage` on the `<video>` (no DRM on YouTube), JPEG q≈0.9, at span midpoint, after `seeked` + `requestVideoFrameCallback`. |
 | Media files | `storeMediaFile` with `deleteExisting: false` + random suffix; write `[sound:...]` / `<img>` refs into fields via `updateNoteFields`. Blank-then-show `guiBrowse` dance to avoid the open-browser update bug (AnkiConnect #82). |
@@ -95,7 +95,7 @@ apps/worker/     (future) CF Worker: yt-dlp-style audio grab + server-side ASR f
 
 1. **Read** ✅: track discovery → sidebar with centered auto-scroll (pauses while
    video paused/hovering, recenters on resume)/active-line/click-to-seek, track
-   picker, Alt+G. Automatic InnerTube fallback when player URLs return empty
+   picker, Alt+T. Automatic InnerTube fallback when player URLs return empty
    (POT enforcement) — validated live.
 2. **Overlay** ✅: current-line overlay in #movie_player, Alt+S, states persisted.
 3. **Mine** ✅: per-row ＋ button + multi-line selection chip; captureStream+

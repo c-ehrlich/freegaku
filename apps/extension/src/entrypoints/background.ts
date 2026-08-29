@@ -15,8 +15,14 @@ type BgMessage =
 
 export default defineBackground(() => {
   browser.commands.onCommand.addListener((command, tab) => {
-    if (command !== 'mine-current-line' || tab?.id === undefined) return;
-    void browser.tabs.sendMessage(tab.id, { type: 'm2-mine-current' }).catch(() => {});
+    if (tab?.id === undefined) return;
+    const type =
+      command === 'toggle-sidebar'
+        ? 'm2-toggle-sidebar'
+        : command === 'mine-current-line'
+          ? 'm2-mine-current'
+          : null;
+    if (type) void browser.tabs.sendMessage(tab.id, { type }, { frameId: 0 }).catch(() => {});
   });
 
   browser.runtime.onMessage.addListener(

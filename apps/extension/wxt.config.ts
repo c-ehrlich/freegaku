@@ -17,6 +17,10 @@ export default defineConfig({
       '*://www.netflix.com/*',
     ],
     commands: {
+      'toggle-sidebar': {
+        suggested_key: { default: 'Alt+T' },
+        description: 'Toggle the subtitle sidebar',
+      },
       // A commands shortcut counts as "invoking" the extension, granting
       // activeTab — which tabCapture and captureVisibleTab require. One press
       // unlocks capture for the tab AND mines the current line.

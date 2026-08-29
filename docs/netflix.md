@@ -59,7 +59,7 @@ No sidebar slot exists; the page is a full-viewport player. The proven approach:
   attributes. NEVER the emotion `ltr-xxxxx` classes.
 - Netflix unmounts (not hides) its control bar when idle; don't inject into it.
   stopPropagation on mousemove inside our panel so Netflix can idle out.
-- Keyboard: Netflix ignores Alt-modified keys → our Alt+G/Alt+S hotkeys are safe.
+- Keyboard: the sidebar uses browser-level Alt+T; Netflix ignores the page-level Alt+S overlay key.
   Panel inputs need stopPropagation so unmodified keys don't hit Netflix shortcuts.
 
 ## Capture under DRM

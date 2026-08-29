@@ -19,8 +19,7 @@ export interface M2Settings {
   /** Note type for standalone cards (Front = prompt, Back = everything). */
   basicModel: string;
   ankiUrl: string;
-  /** Letter pressed with Alt to toggle the sidebar / overlay. */
-  sidebarKey: string;
+  /** Letter pressed with Alt to toggle the on-video overlay. */
   overlayKey: string;
   imageMaxWidth: number;
   /** 0.1–1 */
@@ -52,7 +51,6 @@ export const DEFAULT_SETTINGS: M2Settings = {
   basicDeck: '日本語',
   basicModel: 'Basic',
   ankiUrl: 'http://127.0.0.1:8765',
-  sidebarKey: 'G',
   overlayKey: 'S',
   imageMaxWidth: 1280,
   jpegQuality: 0.9,

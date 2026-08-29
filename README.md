@@ -56,7 +56,7 @@ Right-click the Freegaku toolbar icon → **Options** (opens in a tab):
 
 | Action | How |
 |---|---|
-| Toggle sidebar / overlay | `Alt+G` / `Alt+S` |
+| Toggle sidebar / overlay | `Alt+T` / `Alt+S` |
 | Mine a line | mine the word with Yomitan (hover text in the sidebar), then click the line's **＋** |
 | Mine current line | `Alt+M` (rebindable at `chrome://extensions/shortcuts`) |
 | Precisely mine selected text | drag-select within one line or across lines → **Adjust & add** → trim audio and choose the screenshot frame |

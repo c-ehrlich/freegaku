@@ -627,7 +627,10 @@ function HotkeysSection({ settings, update }: SectionProps) {
       <div className="panel">
         <div className="row">
           <label>Toggle sidebar</label>
-          <KeyField value={settings.sidebarKey} onCommit={(sidebarKey) => update({ sidebarKey })} />
+          <span className="hint">
+            Alt+T — a browser-level shortcut; change it at <code>brave://extensions/shortcuts</code>
+            (or chrome://).
+          </span>
         </div>
         <div className="row">
           <label>Toggle overlay</label>

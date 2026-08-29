@@ -414,6 +414,13 @@ export default defineContentScript({
       if (currentVideo !== video) video = currentVideo;
     }
 
+    function toggleSidebar(): void {
+      sidebarVisible = !sidebarVisible;
+      sidebar.setVisible(sidebarVisible);
+      ensureMounted();
+      void browser.storage.local.set({ [STORAGE_SIDEBAR_VISIBLE]: sidebarVisible });
+    }
+
     function cueAt(tMs: number): SubtitleCue | null {
       for (const c of cues) {
         if (c.start > tMs) break;
@@ -427,24 +434,25 @@ export default defineContentScript({
       if (e.data.type === 'tracks') onTracksPayload(e.data.payload);
     });
 
-    // Alt+M (extension command): mine the current line. The command also
-    // grants activeTab, which the tabCapture/captureVisibleTab paths require.
+    // Browser-level commands work regardless of which Netflix control has focus.
+    // Alt+M also grants activeTab, which tabCapture/captureVisibleTab require.
     browser.runtime.onMessage.addListener((msg: { type?: string }) => {
-      if (msg?.type !== 'm2-mine-current') return;
-      const i = sidebar.activeCueIndex;
-      if (i >= 0) {
-        void mine({ from: i, to: i, mode: 'update', selText: '', adjust: false });
+      if (msg?.type === 'm2-toggle-sidebar') {
+        toggleSidebar();
+      } else if (msg?.type === 'm2-mine-current') {
+        const i = sidebar.activeCueIndex;
+        if (i >= 0) {
+          void mine({ from: i, to: i, mode: 'update', selText: '', adjust: false });
+        } else showToast('No active subtitle line to mine.', 'error');
       }
-      else showToast('No active subtitle line to mine.', 'error');
     });
 
     window.addEventListener(
       'keydown',
       (e) => {
         if (!e.altKey || e.ctrlKey || e.metaKey) return;
-        const sidebarCode = `Key${settings.sidebarKey}`;
         const overlayCode = `Key${settings.overlayKey}`;
-        if (e.code !== sidebarCode && e.code !== overlayCode) return;
+        if (e.code !== overlayCode) return;
         const target = e.target as HTMLElement | null;
         if (
           target?.tagName === 'INPUT' ||
@@ -455,16 +463,9 @@ export default defineContentScript({
         }
         e.preventDefault();
         e.stopPropagation();
-        if (e.code === sidebarCode) {
-          sidebarVisible = !sidebarVisible;
-          sidebar.setVisible(sidebarVisible);
-          ensureMounted();
-          void browser.storage.local.set({ [STORAGE_SIDEBAR_VISIBLE]: sidebarVisible });
-        } else {
-          overlayVisible = !overlayVisible;
-          overlay.setEnabled(overlayVisible);
-          void browser.storage.local.set({ [STORAGE_OVERLAY_VISIBLE]: overlayVisible });
-        }
+        overlayVisible = !overlayVisible;
+        overlay.setEnabled(overlayVisible);
+        void browser.storage.local.set({ [STORAGE_OVERLAY_VISIBLE]: overlayVisible });
       },
       true,
     );

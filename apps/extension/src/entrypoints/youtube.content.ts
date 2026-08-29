@@ -395,19 +395,83 @@ export default defineContentScript({
       return true;
     }
 
+    let observedSecondary: HTMLElement | null = null;
+    let observedFlexy: HTMLElement | null = null;
+    const secondaryResizeObserver = new ResizeObserver(ensureMounted);
+    const flexyLayoutObserver = new MutationObserver(ensureMounted);
+
+    function videoIdFromUrl(): string | null {
+      const url = new URL(location.href);
+      if (url.pathname === '/watch') return url.searchParams.get('v');
+      return null;
+    }
+
+    function observeLayout(secondary: HTMLElement | null): void {
+      if (secondary !== observedSecondary) {
+        secondaryResizeObserver.disconnect();
+        observedSecondary = secondary;
+        if (secondary) secondaryResizeObserver.observe(secondary);
+      }
+      const flexy = document.querySelector<HTMLElement>('ytd-watch-flexy');
+      if (flexy !== observedFlexy) {
+        flexyLayoutObserver.disconnect();
+        observedFlexy = flexy;
+        if (flexy) {
+          flexyLayoutObserver.observe(flexy, {
+            attributes: true,
+            attributeFilter: ['theater', 'fullscreen', 'is-two-columns_'],
+          });
+        }
+      }
+    }
+
+    function visibleSecondary(secondary: HTMLElement | null): HTMLElement | null {
+      if (!secondary) return null;
+      const rect = secondary.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      const style = getComputedStyle(secondary);
+      return style.display === 'none' || style.visibility === 'hidden' ? null : secondary;
+    }
+
+    function floatingParent(): HTMLElement {
+      const fullscreen = document.fullscreenElement;
+      if (fullscreen instanceof HTMLElement && !(fullscreen instanceof HTMLVideoElement)) {
+        return fullscreen;
+      }
+      return document.body;
+    }
+
+    function currentSecondary(): HTMLElement | null {
+      const secondary = document.querySelector<HTMLElement>('ytd-watch-flexy #secondary');
+      observeLayout(secondary);
+      const flexy = document.querySelector<HTMLElement>('ytd-watch-flexy');
+      if (!flexy?.hasAttribute('is-two-columns_') || flexy.hasAttribute('theater')) return null;
+      return visibleSecondary(secondary);
+    }
+
     function ensureMounted(): void {
-      if (!payload?.videoId) return;
-      if (!sidebar.host.isConnected) {
-        // #secondary is the related-videos column on watch pages. Absent in
-        // theater/fullscreen and on shorts — sidebar simply stays unmounted
-        // there; the overlay covers those modes.
-        const secondary = document.querySelector('#secondary');
+      if (!videoIdFromUrl()) {
+        sidebar.host.remove();
+        return;
+      }
+      const secondary = currentSecondary();
+      const parent = secondary ?? floatingParent();
+      sidebar.host.classList.toggle('m2-floating', !secondary);
+      if (sidebar.host.parentElement !== parent) {
         if (secondary) secondary.prepend(sidebar.host);
+        else parent.append(sidebar.host);
       }
       const player = document.querySelector<HTMLElement>('#movie_player');
       if (player) overlay.mount(player);
       const currentVideo = document.querySelector<HTMLVideoElement>('video.html5-main-video');
       if (currentVideo !== video) video = currentVideo;
+    }
+
+    function toggleSidebar(): void {
+      sidebarVisible = !sidebarVisible;
+      sidebar.setVisible(sidebarVisible);
+      ensureMounted();
+      void browser.storage.local.set({ [STORAGE_SIDEBAR_VISIBLE]: sidebarVisible });
     }
 
     /** Cue strictly containing t — the overlay mimics real captions. */
@@ -424,23 +488,24 @@ export default defineContentScript({
       if (e.data.type === 'tracks') onTracksPayload(e.data.payload);
     });
 
-    // Alt+M (extension command): mine the current line.
+    // Browser-level commands work regardless of which YouTube control has focus.
     browser.runtime.onMessage.addListener((msg: { type?: string }) => {
-      if (msg?.type !== 'm2-mine-current') return;
-      const i = sidebar.activeCueIndex;
-      if (i >= 0) {
-        void mine({ from: i, to: i, mode: 'update', selText: '', adjust: false });
+      if (msg?.type === 'm2-toggle-sidebar') {
+        toggleSidebar();
+      } else if (msg?.type === 'm2-mine-current') {
+        const i = sidebar.activeCueIndex;
+        if (i >= 0) {
+          void mine({ from: i, to: i, mode: 'update', selText: '', adjust: false });
+        } else showToast('No active subtitle line to mine.', 'error');
       }
-      else showToast('No active subtitle line to mine.', 'error');
     });
 
     window.addEventListener(
       'keydown',
       (e) => {
         if (!e.altKey || e.ctrlKey || e.metaKey) return;
-        const sidebarCode = `Key${settings.sidebarKey}`;
         const overlayCode = `Key${settings.overlayKey}`;
-        if (e.code !== sidebarCode && e.code !== overlayCode) return;
+        if (e.code !== overlayCode) return;
         const target = e.target as HTMLElement | null;
         if (
           target?.tagName === 'INPUT' ||
@@ -450,19 +515,17 @@ export default defineContentScript({
           return;
         }
         e.preventDefault();
-        if (e.code === sidebarCode) {
-          sidebarVisible = !sidebarVisible;
-          sidebar.setVisible(sidebarVisible);
-          void browser.storage.local.set({ [STORAGE_SIDEBAR_VISIBLE]: sidebarVisible });
-        } else {
-          overlayVisible = !overlayVisible;
-          overlay.setEnabled(overlayVisible);
-          void browser.storage.local.set({ [STORAGE_OVERLAY_VISIBLE]: overlayVisible });
-        }
+        e.stopPropagation();
+        overlayVisible = !overlayVisible;
+        overlay.setEnabled(overlayVisible);
+        void browser.storage.local.set({ [STORAGE_OVERLAY_VISIBLE]: overlayVisible });
       },
       true,
     );
 
+    window.addEventListener('resize', ensureMounted);
+    document.addEventListener('fullscreenchange', ensureMounted);
+    document.addEventListener('yt-navigate-finish', () => setTimeout(ensureMounted, 0));
     setInterval(ensureMounted, MOUNT_CHECK_INTERVAL_MS);
     // Poll instead of listening to timeupdate: immune to element swaps and
     // fires reliably after seeks-while-paused too.
