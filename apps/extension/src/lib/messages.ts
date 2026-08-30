@@ -3,7 +3,7 @@
 
 export const M2_SOURCE = 'm2' as const;
 export const M2_4989_CHANNEL = 'freegaku-4989' as const;
-export const M2_4989_PROTOCOL_VERSION = 2 as const;
+export const M2_4989_PROTOCOL_VERSION = 3 as const;
 
 export interface TrackInfo {
   /** Timedtext URL as provided by the player/InnerTube (may already carry pot=). */
@@ -115,6 +115,14 @@ export type M24989PageRequest =
       channel: typeof M2_4989_CHANNEL;
       version: typeof M2_4989_PROTOCOL_VERSION;
       source: '4989';
+      type: 'target-check';
+      requestId: string;
+      lines: string[];
+    }
+  | {
+      channel: typeof M2_4989_CHANNEL;
+      version: typeof M2_4989_PROTOCOL_VERSION;
+      source: '4989';
       type: 'mine';
       requestId: string;
       payload: M24989MinePayload;
@@ -141,7 +149,7 @@ export type M24989PageResponse =
       source: 'freegaku';
       type: 'result';
       requestId: string;
-      result: MineResponse;
+      result: MineResponse | TargetCheckResponse;
     };
 
 export interface M24989RuntimeMineRequest {
@@ -182,6 +190,11 @@ export function isM24989PageRequest(value: unknown): value is M24989PageRequest 
     return false;
   }
   if (value.type === 'probe') return true;
+  if (value.type === 'target-check') {
+    return (
+      typeof value.requestId === 'string' && value.requestId.length > 0 && isLines(value.lines)
+    );
+  }
   return (
     value.type === 'mine' &&
     typeof value.requestId === 'string' &&
@@ -200,10 +213,7 @@ export function isM24989MinePayload(value: unknown): value is M24989MinePayload 
     (value.mode === 'update' || value.mode === 'basic') &&
     (value.front === undefined || typeof value.front === 'string') &&
     (value.targetOverride === undefined || isTargetOverride(value.targetOverride)) &&
-    Array.isArray(value.lines) &&
-    value.lines.length > 0 &&
-    value.lines.length <= 50 &&
-    value.lines.every((line) => typeof line === 'string' && line.length > 0 && line.length <= 10_000) &&
+    isLines(value.lines) &&
     typeof value.selectedText === 'string' &&
     value.selectedText.length <= 50_000 &&
     finiteTimes &&
@@ -223,6 +233,15 @@ export function isM24989MinePayload(value: unknown): value is M24989MinePayload 
     Number.isFinite(value.video.startSec) &&
     typeof value.video.url === 'string' &&
     value.video.url.startsWith('https://')
+  );
+}
+
+function isLines(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.length <= 50 &&
+    value.every((line) => typeof line === 'string' && line.length > 0 && line.length <= 10_000)
   );
 }
 
