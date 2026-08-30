@@ -2,10 +2,12 @@ import {
   M2_4989_CHANNEL,
   M2_4989_PROTOCOL_VERSION,
   isM24989PageRequest,
+  type M2TargetCheckRequest,
   type M24989PageResponse,
   type M24989RuntimeMineRequest,
   type M24989RuntimeStatus,
   type MineResponse,
+  type TargetCheckResponse,
 } from '../lib/messages';
 
 const MATCHES = [
@@ -26,6 +28,36 @@ export default defineContentScript({
         source: 'freegaku',
         type: 'ready',
       });
+    const relayResult = (
+      requestId: string,
+      runtimeMessage: M24989RuntimeMineRequest | M2TargetCheckRequest,
+    ): void => {
+      void browser.runtime
+        .sendMessage(runtimeMessage)
+        .then((result: MineResponse | TargetCheckResponse) => {
+          post({
+            channel: M2_4989_CHANNEL,
+            version: M2_4989_PROTOCOL_VERSION,
+            source: 'freegaku',
+            type: 'result',
+            requestId,
+            result,
+          });
+        })
+        .catch((error: unknown) => {
+          post({
+            channel: M2_4989_CHANNEL,
+            version: M2_4989_PROTOCOL_VERSION,
+            source: 'freegaku',
+            type: 'result',
+            requestId,
+            result: {
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          });
+        });
+    };
 
     browser.runtime.onMessage.addListener((message: unknown) => {
       const status = message as Partial<M24989RuntimeStatus>;
@@ -58,7 +90,7 @@ export default defineContentScript({
         return;
       }
 
-      const { payload, requestId } = event.data;
+      const { requestId } = event.data;
       post({
         channel: M2_4989_CHANNEL,
         version: M2_4989_PROTOCOL_VERSION,
@@ -68,36 +100,21 @@ export default defineContentScript({
         phase: 'checking-anki',
       });
 
+      if (event.data.type === 'target-check') {
+        relayResult(requestId, {
+          type: 'm2-target-check',
+          mode: 'update',
+          lines: event.data.lines,
+        });
+        return;
+      }
+
       const runtimeMessage: M24989RuntimeMineRequest = {
         type: 'm2-4989-mine',
         requestId,
-        payload,
+        payload: event.data.payload,
       };
-      void browser.runtime
-        .sendMessage(runtimeMessage)
-        .then((result: MineResponse) => {
-          post({
-            channel: M2_4989_CHANNEL,
-            version: M2_4989_PROTOCOL_VERSION,
-            source: 'freegaku',
-            type: 'result',
-            requestId,
-            result,
-          });
-        })
-        .catch((error: unknown) => {
-          post({
-            channel: M2_4989_CHANNEL,
-            version: M2_4989_PROTOCOL_VERSION,
-            source: 'freegaku',
-            type: 'result',
-            requestId,
-            result: {
-              ok: false,
-              error: error instanceof Error ? error.message : String(error),
-            },
-          });
-        });
+      relayResult(requestId, runtimeMessage);
     });
 
     ready();
