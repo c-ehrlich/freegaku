@@ -1,7 +1,13 @@
 import { parseWebVtt } from '@migaku2/subtitles';
 import type { SubtitleCue } from '@migaku2/subtitles';
 import { M2_SOURCE, isM2Message } from '../lib/messages';
-import type { MineRequestMessage, MineResponse, VideoTracksPayload } from '../lib/messages';
+import type {
+  MineRequestMessage,
+  MineResponse,
+  TargetCheckResponse,
+  TargetOverride,
+  VideoTracksPayload,
+} from '../lib/messages';
 import { blobToBase64 } from '../lib/blob';
 import type { CaptureDraft } from '../lib/capture-editor';
 import { captureNetflixSpan } from '../lib/capture-netflix';
@@ -351,6 +357,29 @@ export default defineContentScript({
         front = await promptFront(request.selText);
         if (!front) return false;
       }
+      let targetOverride: TargetOverride | undefined;
+      if (request.mode === 'update') {
+        const check = (await browser.runtime.sendMessage({
+          type: 'm2-target-check',
+          mode: 'update',
+          lines: span.map((c) => c.text),
+        })) as TargetCheckResponse;
+        if (!check.ok) {
+          if ('code' in check && check.code === 'target-word-mismatch') {
+            const confirmed = window.confirm(
+              `The selected sentence does not contain “${check.target.word}”.\n\n` +
+                `Update the card for “${check.target.word}” anyway?`,
+            );
+            if (!confirmed) return false;
+            targetOverride = check.target;
+          } else {
+            showToast(check.error, 'error');
+            return false;
+          }
+        } else {
+          targetOverride = check.target;
+        }
+      }
       mining = true;
       sidebar.setRowBusy(request.from, request.to, true);
       try {
@@ -371,6 +400,7 @@ export default defineContentScript({
           audioBase64: await blobToBase64(mp3),
           imageBase64: imageJpeg ? await blobToBase64(imageJpeg) : null,
           lines: span.map((c) => c.text),
+          targetOverride,
           video: {
             id: payload.videoId,
             title: payload.title,

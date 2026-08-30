@@ -1,5 +1,5 @@
 /** What the miner can write to a card. */
-export type MineContent = 'sentenceAudio' | 'image' | 'sentence' | 'origin';
+export type MineContent = 'word' | 'sentenceAudio' | 'image' | 'sentence' | 'origin';
 
 /** Per-note-type mapping: content kind → destination field (null = don't write). */
 export interface NoteTypeMapping {
@@ -35,6 +35,7 @@ export interface M2Settings {
 }
 
 const DEFAULT_FIELDS: Record<MineContent, string | null> = {
+  word: 'Word',
   sentenceAudio: 'Sentence-Audio',
   image: 'Image',
   sentence: 'Sentence',
@@ -73,6 +74,13 @@ export async function getSettings(): Promise<M2Settings> {
       fields: { ...DEFAULT_FIELDS },
     }));
   }
+  // Mappings saved before the word-field check had no `word` key. Merge each
+  // mapping with defaults so old settings remain valid and get a sensible
+  // source field without overwriting the user's existing choices.
+  settings.mappings = (settings.mappings ?? []).map((mapping) => ({
+    ...mapping,
+    fields: { ...DEFAULT_FIELDS, ...(mapping.fields ?? {}) },
+  }));
   return settings;
 }
 

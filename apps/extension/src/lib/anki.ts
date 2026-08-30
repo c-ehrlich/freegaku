@@ -1,3 +1,5 @@
+import type { TargetOverride } from './messages';
+
 export interface MineNotePayload {
   /** base64 (no data: prefix) MP3 */
   audio?: { base64: string; filenameHint: string };
@@ -7,6 +9,8 @@ export interface MineNotePayload {
   sentenceHtml?: string;
   /** HTML for the Origin field */
   originHtml?: string;
+  /** Raw sentence text before HTML escaping, used for target validation. */
+  sentenceText?: string;
 }
 
 export interface MineResult {
@@ -31,13 +35,33 @@ interface AnkiNoteInfo {
   modelName: string;
 }
 
+export interface TargetNote {
+  noteId: number;
+  word: string;
+}
+
+/** Raised when the selected sentence does not appear to belong to the target note. */
+export class TargetWordMismatchError extends AnkiError {
+  readonly target: TargetNote;
+
+  constructor(target: TargetNote) {
+    super(
+      `The selected sentence does not contain the target word “${target.word}” (note ${target.noteId}).`,
+    );
+    this.name = 'TargetWordMismatchError';
+    this.target = target;
+  }
+}
+
 const DEFAULT_ANKI_URL = 'http://127.0.0.1:8765';
 const RANDOM_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const MARKUP_RE = /<(b|strong|i|em|u)[^>]*>(.*?)<\/\1>/gi;
+const BOLD_RE = /<(b|strong)[^>]*>(.*?)<\/\1>/gi;
 
 export interface UpdateMapping {
   model: string;
   fields: {
+    word: string | null;
     sentenceAudio: string | null;
     image: string | null;
     sentence: string | null;
@@ -47,36 +71,10 @@ export interface UpdateMapping {
 
 export async function updateLastMiningNote(
   payload: MineNotePayload,
-  opts: { mappings: UpdateMapping[]; ankiUrl?: string },
+  opts: { mappings: UpdateMapping[]; ankiUrl?: string; targetOverride?: TargetOverride },
 ): Promise<MineResult> {
   const ankiUrl = opts.ankiUrl ?? DEFAULT_ANKI_URL;
-  const noteTypes = opts.mappings.map((m) => m.model);
-  if (noteTypes.length === 0) {
-    throw new AnkiError('No note types configured — add one in the extension settings.');
-  }
-  const noteIds = await invoke<number[]>(
-    ankiUrl,
-    'findNotes',
-    { query: `(${noteTypes.map((noteType) => `"note:${noteType}"`).join(' OR ')}) added:2` },
-  );
-
-  if (noteIds.length === 0) {
-    throw new AnkiError(
-      `No note of type ${noteTypes.map((t) => `“${t}”`).join(' / ')} added in the last ` +
-        '2 days — mine a word with Yomitan first, then click ＋.',
-    );
-  }
-
-  const id = Math.max(...noteIds);
-  const noteInfos = await invoke<AnkiNoteInfo[]>(ankiUrl, 'notesInfo', { notes: [id] });
-  const noteInfo = noteInfos[0];
-  if (!noteInfo) {
-    throw new AnkiError('Could not read the recent MINING note.');
-  }
-  const mapping = opts.mappings.find((m) => m.model === noteInfo.modelName);
-  if (!mapping) {
-    throw new AnkiError(`No field mapping configured for note type “${noteInfo.modelName}”.`);
-  }
+  const { id, noteInfo, mapping, word } = await resolveTarget(ankiUrl, opts, payload.sentenceText);
   /** Mapped destination field, if it actually exists on the note. */
   const target = (content: keyof UpdateMapping['fields']): string | null => {
     const field = mapping.fields[content];
@@ -84,7 +82,6 @@ export async function updateLastMiningNote(
   };
 
   const fields: Record<string, string> = {};
-  const word = noteInfo.fields.Word?.value ?? '';
 
   const audioField = target('sentenceAudio');
   if (payload.audio && audioField) {
@@ -116,6 +113,69 @@ export async function updateLastMiningNote(
   await ignoreAnkiError(invoke(ankiUrl, 'guiBrowse', { query: `nid:${id}` }));
 
   return { noteId: id, word };
+}
+
+/** Resolve and validate the current eligible target without writing or storing media. */
+export async function checkLastMiningNote(
+  sentenceText: string,
+  opts: { mappings: UpdateMapping[]; ankiUrl?: string; targetOverride?: TargetOverride },
+): Promise<TargetNote> {
+  const ankiUrl = opts.ankiUrl ?? DEFAULT_ANKI_URL;
+  const resolved = await resolveTarget(ankiUrl, opts, sentenceText);
+  return { noteId: resolved.id, word: resolved.word };
+}
+
+async function resolveTarget(
+  ankiUrl: string,
+  opts: { mappings: UpdateMapping[]; targetOverride?: TargetOverride },
+  sentenceText: string | undefined,
+): Promise<{ id: number; noteInfo: AnkiNoteInfo; mapping: UpdateMapping; word: string }> {
+  const noteTypes = opts.mappings.map((m) => m.model).filter(Boolean);
+  if (noteTypes.length === 0) {
+    throw new AnkiError('No note types configured — add one in the extension settings.');
+  }
+  const noteIds = await invoke<number[]>(
+    ankiUrl,
+    'findNotes',
+    { query: `(${noteTypes.map((noteType) => `"note:${noteType}"`).join(' OR ')}) added:2` },
+  );
+
+  let id: number;
+  if (opts.targetOverride) {
+    id = opts.targetOverride.noteId;
+    if (!noteIds.includes(id)) {
+      throw new AnkiError('The target card is no longer an eligible recent MINING note. Please retry.');
+    }
+  } else {
+    if (noteIds.length === 0) {
+      throw new AnkiError(
+        `No note of type ${noteTypes.map((t) => `“${t}”`).join(' / ')} added in the last ` +
+          '2 days — mine a word with Yomitan first, then click ＋.',
+      );
+    }
+    id = Math.max(...noteIds);
+  }
+
+  const noteInfos = await invoke<AnkiNoteInfo[]>(ankiUrl, 'notesInfo', { notes: [id] });
+  const noteInfo = noteInfos[0];
+  if (!noteInfo) throw new AnkiError('Could not read the recent MINING note.');
+  const mapping = opts.mappings.find((m) => m.model === noteInfo.modelName);
+  if (!mapping) throw new AnkiError(`No field mapping configured for note type “${noteInfo.modelName}”.`);
+  const wordField = mapping.fields.word;
+  if (!wordField || !hasField(noteInfo, wordField)) {
+    throw new AnkiError(
+      `The word field “${wordField ?? '(not configured)'}” is missing on note type “${noteInfo.modelName}”. Configure it in Card mapping.`,
+    );
+  }
+  const word = stripTags(noteInfo.fields[wordField]?.value ?? '').trim();
+  if (!word) throw new AnkiError(`The configured word field “${wordField}” is empty on the target note.`);
+  if (opts.targetOverride && normalizeComparable(word) !== normalizeComparable(opts.targetOverride.word)) {
+    throw new AnkiError('The target card changed since confirmation. Please retry.');
+  }
+  if (!opts.targetOverride && !matchesTarget(sentenceText ?? '', word, mapping, noteInfo)) {
+    throw new TargetWordMismatchError({ noteId: id, word });
+  }
+  return { id, noteInfo, mapping, word };
 }
 
 export interface BasicCardPayload {
@@ -278,6 +338,47 @@ function hasField(noteInfo: AnkiNoteInfo, fieldName: string): boolean {
 
 function stripTags(value: string): string {
   return value.replace(/<[^>]*>/g, '');
+}
+
+/** Normalize text for a forgiving word-in-sentence comparison. */
+export function normalizeComparable(value: string): string {
+  return value
+    .normalize('NFKC')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&(?:amp|lt|gt|quot|#39);/gi, (entity) => {
+      const entities: Record<string, string> = {
+        '&amp;': '&',
+        '&lt;': '<',
+        '&gt;': '>',
+        '&quot;': '"',
+        '&#39;': "'",
+      };
+      return entities[entity.toLowerCase()] ?? entity;
+    })
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/** Return true when the word or an existing bold surface form occurs in text. */
+export function matchesTarget(
+  sentence: string,
+  word: string,
+  mapping: UpdateMapping,
+  noteInfo: AnkiNoteInfo,
+): boolean {
+  const normalizedSentence = normalizeComparable(sentence);
+  const normalizedWord = normalizeComparable(word);
+  if (!normalizedSentence || !normalizedWord) return false;
+  if (normalizedSentence.includes(normalizedWord)) return true;
+  const sentenceField = mapping.fields.sentence;
+  if (!sentenceField) return false;
+  const existing = noteInfo.fields[sentenceField]?.value ?? '';
+  for (const match of existing.matchAll(BOLD_RE)) {
+    const surface = normalizeComparable(stripTags(match[2] ?? ''));
+    if (surface && normalizedSentence.includes(surface)) return true;
+  }
+  return false;
 }
 
 function findUnwrapped(value: string, text: string, wrappedMask: boolean[]): number {

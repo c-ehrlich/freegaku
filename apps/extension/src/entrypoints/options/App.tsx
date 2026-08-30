@@ -8,12 +8,13 @@ const SECTIONS = ['Anki', 'Card mapping', 'Quick cards', 'Whisper', 'Hotkeys', '
 type Section = (typeof SECTIONS)[number];
 
 const CONTENT_LABELS: Record<MineContent, string> = {
+  word: 'Card word (check)',
   sentenceAudio: 'Sentence audio',
   image: 'Image',
   sentence: 'Sentence text',
   origin: 'Origin',
 };
-const CONTENT_ORDER: MineContent[] = ['sentenceAudio', 'image', 'sentence', 'origin'];
+const CONTENT_ORDER: MineContent[] = ['word', 'sentenceAudio', 'image', 'sentence', 'origin'];
 
 export function App() {
   const { settings, update, savedTick } = useSettings();
@@ -315,7 +316,7 @@ function MappingSection({ settings, update, anki }: SectionProps & { anki: AnkiD
     update({
       mappings: [
         ...settings.mappings,
-        { model, fields: { sentenceAudio: null, image: null, sentence: null, origin: null } },
+        { model, fields: { word: 'Word', sentenceAudio: null, image: null, sentence: null, origin: null } },
       ],
     });
   };
@@ -347,6 +348,7 @@ function MappingSection({ settings, update, anki }: SectionProps & { anki: AnkiD
 
 /** Default field-name guesses, matched loosely (case/hyphen/space-insensitive). */
 const FIELD_GUESSES: Record<MineContent, string[]> = {
+  word: ['Word', 'Expression', 'Term'],
   sentenceAudio: ['Sentence-Audio', 'SentenceAudio', 'Audio-Sentence'],
   image: ['Image', 'Picture', 'Screenshot'],
   sentence: ['Sentence', 'Expression-Sentence'],
@@ -429,7 +431,9 @@ function MappingCard({
                   })
                 }
               >
-                <option value="">— don’t write</option>
+                <option value="">
+                  {content === 'word' ? '— not configured' : '— don’t write'}
+                </option>
                 {/* Saved value stays selectable even when Anki is offline. */}
                 {value && !(fields ?? []).includes(value) && (
                   <option className={missing ? 'missing' : ''} value={value}>

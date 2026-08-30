@@ -1,5 +1,22 @@
-import { AnkiError, ankiAvailable, createBasicNote, updateLastMiningNote } from '../lib/anki';
-import type { MineRequestMessage, MineResponse } from '../lib/messages';
+import {
+  AnkiError,
+  ankiAvailable,
+  checkLastMiningNote,
+  createBasicNote,
+  TargetWordMismatchError,
+  updateLastMiningNote,
+} from '../lib/anki';
+import {
+  isM24989MinePayload,
+  type M24989RuntimeMineRequest,
+  type M24989RuntimeStatus,
+  type M2TargetCheckRequest,
+  type M2EmbedCaptureRequest,
+  type M2EmbedCaptureResponse,
+  type MineRequestMessage,
+  type MineResponse,
+  type TargetCheckResponse,
+} from '../lib/messages';
 import { getSettings } from '../lib/settings';
 
 // AnkiConnect calls must originate from the extension origin — content-script
@@ -7,6 +24,8 @@ import { getSettings } from '../lib/settings';
 
 type BgMessage =
   | MineRequestMessage
+  | M24989RuntimeMineRequest
+  | M2TargetCheckRequest
   | { type: 'm2-anki-check' }
   | { type: 'm2-record-start' }
   | { type: 'm2-record-stop' }
@@ -41,6 +60,10 @@ export default defineBackground(() => {
           return respond(handleAnkiCheck());
         case 'm2-mine':
           return respond(handleMine(msg));
+        case 'm2-4989-mine':
+          return respond(handle4989Mine(msg, sender.tab?.id, sender.frameId, sender.url));
+        case 'm2-target-check':
+          return respond(handleTargetCheck(msg));
         case 'm2-record-start':
           return respond(handleRecordStart(sender.tab?.id));
         case 'm2-record-stop':
@@ -55,6 +78,113 @@ export default defineBackground(() => {
     },
   );
 });
+
+const ALLOWED_4989_ORIGINS = new Set([
+  'https://4989.c-ehrlich.dev',
+  'http://127.0.0.1:4989',
+  'http://localhost:4989',
+]);
+
+async function handle4989Mine(
+  msg: M24989RuntimeMineRequest,
+  tabId: number | undefined,
+  frameId: number | undefined,
+  senderUrl: string | undefined,
+): Promise<MineResponse> {
+  if (
+    tabId === undefined ||
+    frameId !== 0 ||
+    !senderUrl ||
+    !ALLOWED_4989_ORIGINS.has(new URL(senderUrl).origin) ||
+    !isM24989MinePayload(msg.payload)
+  ) {
+    return { ok: false, error: 'Invalid 4989 mining request.' };
+  }
+
+  const anki = await handleAnkiCheck();
+  if (!anki.ok) return anki;
+
+  const settings = await getSettings();
+  let targetOverride = msg.payload.targetOverride;
+  if (msg.payload.mode === 'update') {
+    const target = await targetCheck(
+      msg.payload.lines,
+      settings.mappings,
+      settings.ankiUrl,
+      targetOverride,
+    );
+    if (!target.ok) return target;
+    targetOverride = target.target;
+  }
+
+  await send4989Status(tabId, msg.requestId, 'capturing');
+  const captureRequest: M2EmbedCaptureRequest = {
+    type: 'm2-embed-capture',
+    capture: msg.payload.capture,
+  };
+  let capture: M2EmbedCaptureResponse;
+  try {
+    capture = (await browser.tabs.sendMessage(tabId, captureRequest)) as M2EmbedCaptureResponse;
+  } catch {
+    return {
+      ok: false,
+      error:
+        'Freegaku could not reach the embedded YouTube player. Reload this 4989 page after installing or updating the extension.',
+    };
+  }
+  if (!capture?.ok) {
+    return { ok: false, error: capture?.error ?? 'The YouTube clip could not be captured.' };
+  }
+
+  await send4989Status(tabId, msg.requestId, 'updating-anki');
+  const mineRequest: MineRequestMessage = {
+    type: 'm2-mine',
+    mode: msg.payload.mode,
+    front: msg.payload.front,
+    audioBase64: capture.audioBase64,
+    imageBase64: capture.imageBase64,
+    lines: msg.payload.lines,
+    targetOverride,
+    video: msg.payload.video,
+  };
+  return await handleMine(mineRequest);
+}
+
+async function handleTargetCheck(msg: M2TargetCheckRequest): Promise<TargetCheckResponse> {
+  if (msg.mode === 'basic') return { ok: true, target: { noteId: 0, word: '' } };
+  if (!Array.isArray(msg.lines) || msg.lines.length === 0) {
+    return { ok: false, error: 'No sentence was selected.' };
+  }
+  const settings = await getSettings();
+  return await targetCheck(msg.lines, settings.mappings, settings.ankiUrl, msg.targetOverride);
+}
+
+async function targetCheck(
+  lines: string[],
+  mappings: Awaited<ReturnType<typeof getSettings>>['mappings'],
+  ankiUrl: string,
+  targetOverride?: MineRequestMessage['targetOverride'],
+): Promise<TargetCheckResponse> {
+  try {
+    const target = await checkLastMiningNote(lines.join('\n'), { mappings, ankiUrl, targetOverride });
+    return { ok: true, target };
+  } catch (e) {
+    if (e instanceof TargetWordMismatchError) {
+      return { ok: false, code: 'target-word-mismatch', error: e.message, target: e.target };
+    }
+    if (e instanceof AnkiError) return { ok: false, error: e.message };
+    throw e;
+  }
+}
+
+async function send4989Status(
+  tabId: number,
+  requestId: string,
+  phase: M24989RuntimeStatus['phase'],
+): Promise<void> {
+  const status: M24989RuntimeStatus = { type: 'm2-4989-status', requestId, phase };
+  await browser.tabs.sendMessage(tabId, status, { frameId: 0 }).catch(() => {});
+}
 
 // --- DRM-safe capture (Netflix): tabCapture audio + visible-tab screenshot ---
 
@@ -174,11 +304,18 @@ async function handleMine(msg: MineRequestMessage): Promise<MineResponse> {
             },
           )
         : await updateLastMiningNote(
-            { ...media, sentenceHtml, originHtml },
-            { mappings: settings.mappings, ankiUrl: settings.ankiUrl },
+            { ...media, sentenceHtml, sentenceText: msg.lines.join('\n'), originHtml },
+            {
+              mappings: settings.mappings,
+              ankiUrl: settings.ankiUrl,
+              targetOverride: msg.targetOverride,
+            },
           );
     return { ok: true, word: result.word };
   } catch (e) {
+    if (e instanceof TargetWordMismatchError) {
+      return { ok: false, code: 'target-word-mismatch', error: e.message, target: e.target };
+    }
     if (e instanceof AnkiError) return { ok: false, error: e.message };
     throw e;
   }
