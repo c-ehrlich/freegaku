@@ -45,6 +45,9 @@ importers:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.6
       wxt:
         specifier: ^0.20.27
         version: 0.20.27

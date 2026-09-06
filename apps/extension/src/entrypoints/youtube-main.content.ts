@@ -27,6 +27,7 @@ interface RawPlayerTrack {
 
 export default defineContentScript({
   matches: ['*://www.youtube.com/*', '*://m.youtube.com/*'],
+  allFrames: true,
   world: 'MAIN',
   runAt: 'document_start',
   main() {
@@ -42,6 +43,12 @@ export default defineContentScript({
     }
 
     function videoIdFromUrl(): string | null {
+      // Embedded players change videos with loadVideoById without changing
+      // their iframe URL, so the live player ID must win over location.href.
+      const liveVideoId = document.querySelector<YtPlayerElement>('#movie_player')
+        ?.getVideoData?.()
+        ?.video_id;
+      if (liveVideoId && /^[\w-]{11}$/.test(liveVideoId)) return liveVideoId;
       const url = new URL(location.href);
       if (url.pathname === '/watch') return url.searchParams.get('v');
       const short = /^\/(?:shorts|embed)\/([\w-]{11})/.exec(url.pathname);
@@ -161,6 +168,16 @@ export default defineContentScript({
       if (!videoId) {
         post({ videoId: null, title: '', author: '', source: 'none', tracks: [] });
         return;
+      }
+      // YouTube's embedded player commonly omits getAudioTrack().captionTracks.
+      // InnerTube is both faster there and returns timedtext URLs without POT.
+      if (location.pathname.startsWith('/embed/')) {
+        const fromInnertube = await innertubeTracks(videoId).catch(() => null);
+        if (mySeq !== seq) return;
+        if (fromInnertube) {
+          post(fromInnertube);
+          return;
+        }
       }
       const fromPlayer = await playerTracks(videoId, () => mySeq !== seq);
       if (mySeq !== seq) return;

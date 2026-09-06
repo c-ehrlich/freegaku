@@ -8,14 +8,17 @@ import {
 } from '../lib/anki';
 import {
   isM24989MinePayload,
+  isM2EmbedRequest,
   type M24989RuntimeMineRequest,
   type M24989RuntimeStatus,
   type M2TargetCheckRequest,
   type M2EmbedCaptureRequest,
   type M2EmbedCaptureResponse,
+  type M2EmbedResponse,
   type MineRequestMessage,
   type MineResponse,
   type TargetCheckResponse,
+  type M2YouglishEmbedRequest,
 } from '../lib/messages';
 import { getSettings } from '../lib/settings';
 
@@ -26,6 +29,7 @@ type BgMessage =
   | MineRequestMessage
   | M24989RuntimeMineRequest
   | M2TargetCheckRequest
+  | M2YouglishEmbedRequest
   | { type: 'm2-anki-check' }
   | { type: 'm2-record-start' }
   | { type: 'm2-record-stop' }
@@ -64,6 +68,10 @@ export default defineBackground(() => {
           return respond(handle4989Mine(msg, sender.tab?.id, sender.frameId, sender.url));
         case 'm2-target-check':
           return respond(handleTargetCheck(msg));
+        case 'm2-youglish-embed':
+          return respond(
+            handleYouglishEmbed(msg, sender.tab?.id, sender.frameId, sender.url),
+          );
         case 'm2-record-start':
           return respond(handleRecordStart(sender.tab?.id));
         case 'm2-record-stop':
@@ -84,6 +92,36 @@ const ALLOWED_4989_ORIGINS = new Set([
   'http://127.0.0.1:4989',
   'http://localhost:4989',
 ]);
+
+const ALLOWED_YOUGLISH_ORIGINS = new Set([
+  'https://youglish.com',
+  'https://www.youglish.com',
+]);
+
+async function handleYouglishEmbed(
+  msg: M2YouglishEmbedRequest,
+  tabId: number | undefined,
+  frameId: number | undefined,
+  senderUrl: string | undefined,
+): Promise<M2EmbedResponse> {
+  if (
+    tabId === undefined ||
+    frameId !== 0 ||
+    !senderUrl ||
+    !ALLOWED_YOUGLISH_ORIGINS.has(new URL(senderUrl).origin) ||
+    !isM2EmbedRequest(msg.request)
+  ) {
+    return { ok: false, error: 'Invalid YouGlish player request.' };
+  }
+  try {
+    return (await browser.tabs.sendMessage(tabId, msg.request)) as M2EmbedResponse;
+  } catch {
+    return {
+      ok: false,
+      error: 'Freegaku could not reach the embedded YouTube player. Reload the YouGlish page.',
+    };
+  }
+}
 
 async function handle4989Mine(
   msg: M24989RuntimeMineRequest,

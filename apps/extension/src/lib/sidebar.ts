@@ -171,6 +171,9 @@ html[dark] #m2-sidebar .m2-status {
   white-space: pre-wrap;
   word-break: break-word;
   color: inherit;
+  /* Player containers (Netflix) disable selection; subtitle dragging must opt in. */
+  user-select: text;
+  -webkit-user-select: text;
 }
 #m2-sidebar .m2-add {
   flex: none;
@@ -245,6 +248,10 @@ export class Sidebar {
   setGenerating(running: boolean): void {
     this.genEl.textContent = running ? '⏹' : '✨';
     this.genEl.title = running ? 'Stop generating' : 'Generate subtitles with Whisper';
+  }
+
+  setGenerateAvailable(available: boolean): void {
+    this.genEl.hidden = !available;
   }
 
   constructor() {

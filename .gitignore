@@ -8,3 +8,4 @@ dist/
 web-ext.config.ts
 .chrome-profile/
 .dev.vars
+tmp/

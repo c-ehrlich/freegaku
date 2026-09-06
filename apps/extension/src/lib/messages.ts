@@ -29,6 +29,8 @@ export interface VideoTracksPayload {
 
 export type M2Message =
   | { source: typeof M2_SOURCE; type: 'tracks'; payload: VideoTracksPayload }
+  | { source: typeof M2_SOURCE; type: 'youglish-result'; payload: YouglishResultPayload }
+  | { source: typeof M2_SOURCE; type: 'youglish-transcript-fallback'; videoId: string }
   | { source: typeof M2_SOURCE; type: 'refresh' }
   /** Player-sourced caption URL returned an empty body (bad/missing POT) —
    * ask the MAIN world for InnerTube-sourced tracks instead. */
@@ -167,6 +169,45 @@ export interface M24989RuntimeStatus {
 export interface M2EmbedCaptureRequest {
   type: 'm2-embed-capture';
   capture: M24989MinePayload['capture'];
+  options?: {
+    padStartMs?: number;
+    padEndMs?: number;
+    imageMaxWidth?: number;
+    jpegQuality?: number;
+  };
+}
+
+export interface M2EmbedStateRequest {
+  type: 'm2-embed-state';
+}
+
+export interface M2EmbedControlRequest {
+  type: 'm2-embed-control';
+  action: 'seek' | 'play' | 'pause';
+  ms?: number;
+}
+
+export interface M2EmbedTranscriptRequest {
+  type: 'm2-embed-transcript';
+  videoId: string;
+  languageCode?: string;
+}
+
+export type M2EmbedRequest =
+  | M2EmbedCaptureRequest
+  | M2EmbedStateRequest
+  | M2EmbedControlRequest
+  | M2EmbedTranscriptRequest;
+
+export interface M2EmbedState {
+  currentTimeMs: number;
+  paused: boolean;
+  videoId: string | null;
+}
+
+export interface M2YouglishEmbedRequest {
+  type: 'm2-youglish-embed';
+  request: M2EmbedRequest;
 }
 
 export interface M2TargetCheckRequest {
@@ -177,8 +218,44 @@ export interface M2TargetCheckRequest {
 }
 
 export type M2EmbedCaptureResponse =
-  | { ok: true; audioBase64: string; imageBase64: string | null }
+  | { ok: true; audioBase64: string; imageBase64: string | null; videoId: string | null }
   | { ok: false; error: string };
+
+export type M2EmbedStateResponse =
+  | { ok: true; state: M2EmbedState }
+  | { ok: false; error: string };
+
+export type M2EmbedControlResponse = M2EmbedStateResponse;
+
+export type M2EmbedTranscriptResponse =
+  | {
+      ok: true;
+      videoId: string;
+      cues: Array<{ text: string; startMs: number; endMs: number }>;
+    }
+  | { ok: false; error: string };
+
+export type M2EmbedResponse =
+  | M2EmbedCaptureResponse
+  | M2EmbedStateResponse
+  | M2EmbedControlResponse
+  | M2EmbedTranscriptResponse;
+
+export interface YouglishResultPayload {
+  index: number;
+  total: number;
+  query: string;
+  text: string;
+  videoId: string;
+  startMs: number;
+  endMs: number;
+  title: string;
+  cues: Array<{
+    text: string;
+    startMs: number;
+    endMs: number;
+  }>;
+}
 
 export function isM24989PageRequest(value: unknown): value is M24989PageRequest {
   if (!isRecord(value)) return false;
@@ -205,10 +282,6 @@ export function isM24989PageRequest(value: unknown): value is M24989PageRequest 
 
 export function isM24989MinePayload(value: unknown): value is M24989MinePayload {
   if (!isRecord(value) || !isRecord(value.capture) || !isRecord(value.video)) return false;
-  const { startMs, endMs, imageMs } = value.capture;
-  const finiteTimes = [startMs, endMs, imageMs].every(
-    (time) => typeof time === 'number' && Number.isFinite(time),
-  );
   return (
     (value.mode === 'update' || value.mode === 'basic') &&
     (value.front === undefined || typeof value.front === 'string') &&
@@ -216,15 +289,7 @@ export function isM24989MinePayload(value: unknown): value is M24989MinePayload 
     isLines(value.lines) &&
     typeof value.selectedText === 'string' &&
     value.selectedText.length <= 50_000 &&
-    finiteTimes &&
-    typeof startMs === 'number' &&
-    typeof endMs === 'number' &&
-    typeof imageMs === 'number' &&
-    startMs >= 0 &&
-    endMs > startMs &&
-    endMs - startMs <= 30_000 &&
-    imageMs >= startMs &&
-    imageMs <= endMs &&
+    isCaptureWindow(value.capture) &&
     typeof value.video.id === 'string' &&
     value.video.id.length > 0 &&
     typeof value.video.title === 'string' &&
@@ -233,6 +298,100 @@ export function isM24989MinePayload(value: unknown): value is M24989MinePayload 
     Number.isFinite(value.video.startSec) &&
     typeof value.video.url === 'string' &&
     value.video.url.startsWith('https://')
+  );
+}
+
+export function isM2EmbedRequest(value: unknown): value is M2EmbedRequest {
+  if (!isRecord(value)) return false;
+  if (value.type === 'm2-embed-state') return true;
+  if (value.type === 'm2-embed-transcript') {
+    if (typeof value.videoId !== 'string' || !/^[\w-]{11}$/.test(value.videoId)) return false;
+    return (
+      value.languageCode === undefined ||
+      (typeof value.languageCode === 'string' &&
+        /^[a-z]{2,3}(?:-[A-Z]{2})?$/.test(value.languageCode))
+    );
+  }
+  if (value.type === 'm2-embed-control') {
+    if (value.action === 'play' || value.action === 'pause') return value.ms === undefined;
+    return (
+      value.action === 'seek' &&
+      typeof value.ms === 'number' &&
+      Number.isFinite(value.ms) &&
+      value.ms >= 0 &&
+      value.ms <= 86_400_000
+    );
+  }
+  if (value.type !== 'm2-embed-capture' || !isCaptureWindow(value.capture)) return false;
+  if (value.options === undefined) return true;
+  if (!isRecord(value.options)) return false;
+  return (
+    isOptionalNumberInRange(value.options.padStartMs, 0, 10_000) &&
+    isOptionalNumberInRange(value.options.padEndMs, 0, 10_000) &&
+    isOptionalNumberInRange(value.options.imageMaxWidth, 64, 4096) &&
+    isOptionalNumberInRange(value.options.jpegQuality, 0.1, 1)
+  );
+}
+
+export function isCaptureWindow(value: unknown): value is M24989MinePayload['capture'] {
+  if (!isRecord(value)) return false;
+  const { startMs, endMs, imageMs } = value;
+  return (
+    [startMs, endMs, imageMs].every(
+      (time) => typeof time === 'number' && Number.isFinite(time),
+    ) &&
+    typeof startMs === 'number' &&
+    typeof endMs === 'number' &&
+    typeof imageMs === 'number' &&
+    startMs >= 0 &&
+    endMs > startMs &&
+    endMs - startMs <= 30_000 &&
+    imageMs >= startMs &&
+    imageMs <= endMs
+  );
+}
+
+export function isYouglishResultPayload(value: unknown): value is YouglishResultPayload {
+  if (!isRecord(value)) return false;
+  return (
+    Number.isSafeInteger(value.index) &&
+    (value.index as number) > 0 &&
+    Number.isSafeInteger(value.total) &&
+    (value.total as number) >= (value.index as number) &&
+    typeof value.query === 'string' &&
+    value.query.length > 0 &&
+    value.query.length <= 500 &&
+    typeof value.text === 'string' &&
+    value.text.length > 0 &&
+    value.text.length <= 10_000 &&
+    typeof value.videoId === 'string' &&
+    /^[\w-]{11}$/.test(value.videoId) &&
+    typeof value.startMs === 'number' &&
+    typeof value.endMs === 'number' &&
+    isCaptureWindow({
+      startMs: value.startMs,
+      endMs: value.endMs,
+      imageMs: value.startMs + (value.endMs - value.startMs) / 2,
+    }) &&
+    typeof value.title === 'string' &&
+    value.title.length <= 1_000 &&
+    Array.isArray(value.cues) &&
+    value.cues.length > 0 &&
+    value.cues.length <= 10_000 &&
+    value.cues.every(
+      (cue) =>
+        isRecord(cue) &&
+        typeof cue.text === 'string' &&
+        cue.text.length > 0 &&
+        cue.text.length <= 10_000 &&
+        typeof cue.startMs === 'number' &&
+        typeof cue.endMs === 'number' &&
+        isCaptureWindow({
+          startMs: cue.startMs,
+          endMs: cue.endMs,
+          imageMs: cue.startMs + (cue.endMs - cue.startMs) / 2,
+        }),
+    )
   );
 }
 
@@ -267,4 +426,11 @@ export function isM2Message(data: unknown): data is M2Message {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function isOptionalNumberInRange(value: unknown, min: number, max: number): boolean {
+  return (
+    value === undefined ||
+    (typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max)
+  );
 }
