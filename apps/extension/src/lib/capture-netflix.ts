@@ -97,9 +97,45 @@ const SHOT_HIDE_CSS = `
 }
 `;
 
-/** captureVisibleTab (full window) cropped to the video's rect. The bitmap is
- * in physical pixels — multiply CSS rects by devicePixelRatio or the crop
- * lands in the wrong place on Retina displays. */
+/** The on-screen area showing actual video pixels: the object-fit content box
+ * (excluding letterbox bars) intersected with every clipping ancestor, so an
+ * oversized/offset video element never pulls in page chrome or the sidebar. */
+function visibleVideoRect(video: HTMLVideoElement): DOMRect | null {
+  const box = video.getBoundingClientRect();
+  let { left, top, width, height } = box;
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  const fit = getComputedStyle(video).objectFit;
+  if (vw > 0 && vh > 0 && (fit === 'contain' || fit === 'scale-down')) {
+    const scale = Math.min(width / vw, height / vh, fit === 'scale-down' ? 1 : Infinity);
+    const cw = vw * scale;
+    const ch = vh * scale;
+    left += (width - cw) / 2;
+    top += (height - ch) / 2;
+    width = cw;
+    height = ch;
+  }
+  let right = left + width;
+  let bottom = top + height;
+  for (let el = video.parentElement; el; el = el.parentElement) {
+    if (getComputedStyle(el).overflow === 'visible') continue;
+    const clip = el.getBoundingClientRect();
+    left = Math.max(left, clip.left);
+    top = Math.max(top, clip.top);
+    right = Math.min(right, clip.right);
+    bottom = Math.min(bottom, clip.bottom);
+  }
+  left = Math.max(left, 0);
+  top = Math.max(top, 0);
+  right = Math.min(right, window.innerWidth);
+  bottom = Math.min(bottom, window.innerHeight);
+  if (right - left < 1 || bottom - top < 1) return null;
+  return new DOMRect(left, top, right - left, bottom - top);
+}
+
+/** captureVisibleTab (full window) cropped to the visible video pixels. The
+ * bitmap is in physical pixels, so CSS rects are scaled by the bitmap/viewport
+ * ratio (devicePixelRatio alone is off under browser zoom). */
 async function grabNetflixFrame(
   video: HTMLVideoElement,
   opts: NetflixCaptureOptions,
@@ -122,8 +158,9 @@ async function grabNetflixFrame(
     img.onerror = () => reject(new Error('screenshot decode failed'));
     img.src = res.dataUrl!;
   });
-  const rect = video.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
+  const rect = visibleVideoRect(video);
+  if (!rect) throw new Error('video is not visible');
+  const dpr = img.naturalWidth / window.innerWidth || window.devicePixelRatio || 1;
   const srcW = rect.width * dpr;
   const srcH = rect.height * dpr;
   const scale = Math.min(1, (opts.imageMaxWidth ?? 1280) / srcW);

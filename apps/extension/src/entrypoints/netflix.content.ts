@@ -56,9 +56,18 @@ const NF_CSS = `
   color: #aaa;
 }
 `;
+// Netflix centers the <video> (left/top 50% + translate -50%) and sizes it
+// with an inline pixel width computed from the window, which it doesn't
+// recompute when we narrow the player — the video then overflows and gets
+// clipped on both sides. Filling the container lets its object-fit: contain
+// letterbox the full frame instead.
 const SHRINK_CSS = `
 .watch-video--player-view {
   width: calc(100vw - ${SIDEBAR_WIDTH_PX}px) !important;
+}
+.watch-video--player-view video {
+  width: 100% !important;
+  height: 100% !important;
 }
 `;
 
