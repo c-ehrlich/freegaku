@@ -13,6 +13,9 @@ const NAV_POLL_INTERVAL_MS = 500;
 interface YtPlayerElement extends HTMLElement {
   getAudioTrack?: () => { captionTracks?: RawPlayerTrack[] } | undefined;
   getVideoData?: () => { video_id?: string; title?: string; author?: string } | undefined;
+  getPlayerResponse?: () =>
+    | { videoDetails?: { videoId?: string; shortDescription?: string } }
+    | undefined;
 }
 
 interface RawPlayerTrack {
@@ -97,10 +100,13 @@ export default defineContentScript({
           if (Array.isArray(raw) && raw.length > 0) {
             const tracks = normalizeTracks(raw);
             if (tracks.length > 0) {
+              const details = player.getPlayerResponse?.()?.videoDetails;
               candidate = {
                 videoId,
                 title: data.title ?? '',
                 author: data.author ?? '',
+                description:
+                  details?.videoId === videoId ? (details.shortDescription ?? '') : undefined,
                 source: 'player',
                 tracks,
                 clientName: ytcfgGet('INNERTUBE_CLIENT_NAME'),
@@ -147,7 +153,7 @@ export default defineContentScript({
       if (!res.ok) return null;
       const data = (await res.json()) as {
         captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: RawPlayerTrack[] } };
-        videoDetails?: { title?: string; author?: string };
+        videoDetails?: { title?: string; author?: string; shortDescription?: string };
       };
       const raw = data.captions?.playerCaptionsTracklistRenderer?.captionTracks;
       if (!Array.isArray(raw) || raw.length === 0) return null;
@@ -157,6 +163,7 @@ export default defineContentScript({
         videoId,
         title: data.videoDetails?.title ?? '',
         author: data.videoDetails?.author ?? '',
+        description: data.videoDetails?.shortDescription ?? '',
         source: 'innertube',
         tracks,
       };

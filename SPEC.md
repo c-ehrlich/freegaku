@@ -120,6 +120,13 @@ apps/worker/     (future) CF Worker: yt-dlp-style audio grab + server-side ASR f
    mode) → progressive cues, cached per video, minable like any track. YouTube
    fast mode (2x muted). Direct googlevideo audio download is NOT viable (GVS
    POT enforcement — 403 on all InnerTube clients, verified 2026-07).
+8. **Explain** ✅: selection chip 💡 Explain → panel docked in the sidebar;
+   streams an explanation from OpenRouter (user's key/model/language in
+   settings) with follow-ups, copy and cost. Context = video details + the
+   transcript up to 20 cues past the selection (spoiler-safe, prompt-cached);
+   auto-generated transcripts are flagged at the top of the prompt. 4989 gets
+   the same via protocol v4 (explain / explain-delta / explain-cancel), with
+   the relay still answering v3 pages.
 
 ## Known risks
 

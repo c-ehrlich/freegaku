@@ -1,7 +1,8 @@
 import type { SubtitleCue } from '@migaku2/subtitles';
 import { CaptureEditor } from './capture-editor';
 import type { CaptureEditorOptions } from './capture-editor';
-import type { TrackInfo } from './messages';
+import { ExplainPanel } from './explain-panel';
+import type { ExplainContext, TrackInfo } from './messages';
 import { showToast } from './toast';
 
 export interface SidebarMineRequest {
@@ -136,6 +137,13 @@ html[dark] #m2-sidebar .m2-status {
 #m2-sidebar.m2-floating.m2-editing .m2-list {
   max-height: calc(100vh - 470px);
 }
+#m2-sidebar.m2-explaining .m2-list {
+  max-height: calc(100vh - 620px);
+  min-height: 80px;
+}
+#m2-sidebar.m2-floating.m2-explaining .m2-list {
+  max-height: calc(100vh - 560px);
+}
 #m2-sidebar .m2-row {
   display: flex;
   gap: 10px;
@@ -205,17 +213,27 @@ html[dark] #m2-sidebar .m2-status {
   position: fixed;
   z-index: 2147483000;
   transform: translate(-50%, 0);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  display: none;
+  white-space: nowrap;
+}
+#m2-sidebar #m2-chip button {
   background: #3ea6ff;
   color: #fff;
   border: none;
-  border-radius: 16px;
-  padding: 6px 14px;
+  padding: 6px 12px;
   font-family: inherit;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-  display: none;
+}
+#m2-sidebar #m2-chip button:hover {
+  background: #2d96eb;
+}
+#m2-sidebar #m2-chip button + button {
+  border-left: 1px solid rgba(255, 255, 255, 0.45);
 }
 `;
 
@@ -224,8 +242,10 @@ export class Sidebar {
   private readonly listEl: HTMLElement;
   private readonly selectEl: HTMLSelectElement;
   private readonly statusEl: HTMLElement;
-  private readonly chipEl: HTMLButtonElement;
+  private readonly chipEl: HTMLElement;
+  private readonly chipAdjustEl: HTMLButtonElement;
   private readonly captureEditor: CaptureEditor;
+  private readonly explainPanel: ExplainPanel;
   private genEl!: HTMLButtonElement;
   private copyEl!: HTMLButtonElement;
   private copyResetTimeout: number | undefined;
@@ -244,6 +264,8 @@ export class Sidebar {
   onMine?: (request: SidebarMineRequest) => void;
   /** ✨ button: start (or stop, while running) Whisper generation. */
   onGenerate?: () => void;
+  /** Site-specific context for 💡 Explain; null ignores the click. */
+  explainContext?: (request: SidebarMineRequest) => ExplainContext | null;
 
   setGenerating(running: boolean): void {
     this.genEl.textContent = running ? '⏹' : '✨';
@@ -297,27 +319,43 @@ export class Sidebar {
     this.listEl.addEventListener('mouseleave', () => (this.hovering = false));
 
     this.captureEditor = new CaptureEditor();
+    this.explainPanel = new ExplainPanel();
 
-    // Floating adjustment chip shown for any subtitle text selection.
+    // Floating chip shown for any subtitle text selection.
     // position: fixed escapes the host's overflow clipping.
-    this.chipEl = document.createElement('button');
+    this.chipEl = document.createElement('div');
     this.chipEl.id = 'm2-chip';
     // Keep the selection alive: a mousedown would collapse it before click.
     this.chipEl.addEventListener('mousedown', (e) => e.preventDefault());
-    this.chipEl.addEventListener('click', (e) => {
-      const span = this.chipSpan;
-      this.hideChip();
-      window.getSelection()?.removeAllRanges();
-      if (span) {
-        this.onMine?.({ ...span, mode: e.altKey ? 'basic' : 'update' });
-      }
+    this.chipAdjustEl = document.createElement('button');
+    this.chipAdjustEl.type = 'button';
+    this.chipAdjustEl.textContent = '✂ Adjust & add';
+    this.chipAdjustEl.addEventListener('click', (e) => {
+      const span = this.takeChipSpan();
+      if (span) this.onMine?.({ ...span, mode: e.altKey ? 'basic' : 'update' });
     });
+    const chipExplain = document.createElement('button');
+    chipExplain.type = 'button';
+    chipExplain.textContent = '💡 Explain';
+    chipExplain.title = 'Explain this in the context of the video';
+    chipExplain.addEventListener('click', () => {
+      const span = this.takeChipSpan();
+      if (span) this.showExplainPanel(span);
+    });
+    this.chipEl.append(this.chipAdjustEl, chipExplain);
     document.addEventListener('selectionchange', () => {
       clearTimeout(this.selDebounce);
       this.selDebounce = window.setTimeout(() => this.updateChip(), 150);
     });
 
-    this.host.append(header, this.statusEl, this.listEl, this.captureEditor.host, this.chipEl);
+    this.host.append(
+      header,
+      this.statusEl,
+      this.listEl,
+      this.captureEditor.host,
+      this.explainPanel.host,
+      this.chipEl,
+    );
   }
 
   private selDebounce: number | undefined;
@@ -336,6 +374,9 @@ export class Sidebar {
 
   setCues(cues: SubtitleCue[]): void {
     this.cancelCaptureEditor();
+    // Empty cues mean a new video or track is loading. Generation growing the
+    // current track keeps an open explanation (its context is a snapshot).
+    if (cues.length === 0) this.closeExplainPanel();
     this.cues = cues;
     this.copyEl.disabled = cues.length === 0;
     this.copyEl.title = cues.length === 0 ? 'No subtitles to copy' : 'Copy all subtitles';
@@ -439,10 +480,28 @@ export class Sidebar {
     if (!visible) {
       this.hideChip();
       this.cancelCaptureEditor();
+      this.closeExplainPanel();
     }
   }
 
+  showExplainPanel(request: SidebarMineRequest): void {
+    const context = this.explainContext?.(request);
+    if (!context) return;
+    this.cancelCaptureEditor();
+    this.host.classList.add('m2-explaining');
+    this.explainPanel.open({
+      context,
+      onClose: () => this.host.classList.remove('m2-explaining'),
+    });
+  }
+
+  closeExplainPanel(): void {
+    this.explainPanel.close();
+    this.host.classList.remove('m2-explaining');
+  }
+
   showCaptureEditor(options: CaptureEditorOptions): void {
+    this.closeExplainPanel();
     this.host.classList.add('m2-editing');
     this.captureEditor.open({
       ...options,
@@ -504,14 +563,21 @@ export class Sidebar {
     const sel = window.getSelection();
     const rect = sel!.getRangeAt(0).getBoundingClientRect();
     this.chipSpan = span;
-    this.chipEl.textContent = '✂ Adjust & add';
-    this.chipEl.title =
+    this.chipAdjustEl.title =
       span.from === span.to
         ? 'Adjust audio and screenshot timing for this selection'
         : `Adjust audio and screenshot timing for ${span.to - span.from + 1} lines`;
     this.chipEl.style.left = `${rect.left + rect.width / 2}px`;
     this.chipEl.style.top = `${rect.bottom + 8}px`;
-    this.chipEl.style.display = 'block';
+    this.chipEl.style.display = 'flex';
+  }
+
+  /** The chip's selection span; hides the chip and clears the selection. */
+  private takeChipSpan(): SidebarMineRequest | null {
+    const span = this.chipSpan;
+    this.hideChip();
+    window.getSelection()?.removeAllRanges();
+    return span;
   }
 
   private hideChip(): void {

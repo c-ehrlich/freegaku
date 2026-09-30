@@ -15,6 +15,8 @@ export default defineConfig({
       // AnkiConnect — calls must come from the extension origin.
       'http://127.0.0.1:8765/*',
       '*://www.netflix.com/*',
+      // Explanations (the background calls OpenRouter with the user's key).
+      'https://openrouter.ai/*',
     ],
     commands: {
       'toggle-sidebar': {

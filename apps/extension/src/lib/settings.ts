@@ -32,6 +32,12 @@ export interface M2Settings {
   whisperLang: string;
   /** Playback rate while generating on YouTube (Netflix always 1x). */
   generateRate: number;
+  /** OpenRouter API key for explanations; empty = Explain shows a setup hint. */
+  openRouterKey: string;
+  /** OpenRouter model id used for explanations. */
+  explainModel: string;
+  /** Language explanations are written in, unless the question is in another. */
+  explainLanguage: string;
 }
 
 const DEFAULT_FIELDS: Record<MineContent, string | null> = {
@@ -59,6 +65,9 @@ export const DEFAULT_SETTINGS: M2Settings = {
   workerToken: '',
   whisperLang: 'ja',
   generateRate: 2,
+  openRouterKey: '',
+  explainModel: 'anthropic/claude-sonnet-5',
+  explainLanguage: 'English',
 };
 
 const STORAGE_KEY = 'settings';
