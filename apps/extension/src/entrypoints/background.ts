@@ -6,7 +6,10 @@ import {
   TargetWordMismatchError,
   updateLastMiningNote,
 } from '../lib/anki';
+import { buildExplainMessages } from '../lib/explain';
 import {
+  EXPLAIN_PORT,
+  isExplainRequest,
   isM24989MinePayload,
   isM2EmbedRequest,
   type M24989RuntimeMineRequest,
@@ -19,7 +22,11 @@ import {
   type MineResponse,
   type TargetCheckResponse,
   type M2YouglishEmbedRequest,
+  type ExplainPortClientMessage,
+  type ExplainPortServerMessage,
+  type ExplainResult,
 } from '../lib/messages';
+import { OpenRouterError, streamChat } from '../lib/openrouter';
 import { getSettings } from '../lib/settings';
 
 // AnkiConnect calls must originate from the extension origin — content-script
@@ -31,6 +38,7 @@ type BgMessage =
   | M2TargetCheckRequest
   | M2YouglishEmbedRequest
   | { type: 'm2-anki-check' }
+  | { type: 'm2-open-settings' }
   | { type: 'm2-record-start' }
   | { type: 'm2-record-stop' }
   | { type: 'm2-screenshot' }
@@ -67,7 +75,14 @@ export default defineBackground(() => {
         case 'm2-4989-mine':
           return respond(handle4989Mine(msg, sender.tab?.id, sender.frameId, sender.url));
         case 'm2-target-check':
+          if (!isAllowedSender(sender)) {
+            sendResponse({ ok: false, error: 'Target check not allowed from this page.' });
+            return undefined;
+          }
           return respond(handleTargetCheck(msg));
+        case 'm2-open-settings':
+          void browser.runtime.openOptionsPage();
+          return undefined;
         case 'm2-youglish-embed':
           return respond(
             handleYouglishEmbed(msg, sender.tab?.id, sender.frameId, sender.url),
@@ -85,6 +100,10 @@ export default defineBackground(() => {
       }
     },
   );
+
+  browser.runtime.onConnect.addListener((port) => {
+    if (port.name === EXPLAIN_PORT) handleExplainPort(port);
+  });
 });
 
 const ALLOWED_4989_ORIGINS = new Set([
@@ -97,6 +116,83 @@ const ALLOWED_YOUGLISH_ORIGINS = new Set([
   'https://youglish.com',
   'https://www.youglish.com',
 ]);
+
+/** Top frames of the sites our content scripts run on. Anything that spends
+ * the user's OpenRouter key or reads their Anki target must come from one. */
+const ALLOWED_CONTENT_ORIGINS = new Set([
+  ...ALLOWED_4989_ORIGINS,
+  ...ALLOWED_YOUGLISH_ORIGINS,
+  'https://www.youtube.com',
+  'https://m.youtube.com',
+  'https://www.netflix.com',
+]);
+
+function isAllowedSender(sender: Browser.runtime.MessageSender | undefined): boolean {
+  if (!sender?.url || sender.frameId !== 0 || sender.id !== browser.runtime.id) return false;
+  try {
+    return ALLOWED_CONTENT_ORIGINS.has(new URL(sender.url).origin);
+  } catch {
+    return false;
+  }
+}
+
+// --- Explanations: one port per request; disconnect aborts the stream ---
+
+function handleExplainPort(port: Browser.runtime.Port): void {
+  const controller = new AbortController();
+  let finished = false;
+  const post = (message: ExplainPortServerMessage): void => {
+    try {
+      port.postMessage(message);
+    } catch {
+      controller.abort(); // client went away
+    }
+  };
+  port.onDisconnect.addListener(() => {
+    if (!finished) controller.abort();
+  });
+  if (!isAllowedSender(port.sender)) {
+    post({ type: 'done', result: { ok: false, error: 'Explain is not allowed from this page.' } });
+    port.disconnect();
+    return;
+  }
+  port.onMessage.addListener((message: unknown) => {
+    const start = message as Partial<ExplainPortClientMessage>;
+    if (start?.type !== 'start') return;
+    void (async () => {
+      let result: ExplainResult;
+      if (!isExplainRequest(start.request)) {
+        result = { ok: false, error: 'Invalid explain request.' };
+      } else {
+        const settings = await getSettings();
+        try {
+          const { text, model, costUsd } = await streamChat({
+            apiKey: settings.openRouterKey.trim(),
+            model: settings.explainModel.trim() || 'anthropic/claude-sonnet-5',
+            messages: buildExplainMessages(start.request, settings.explainLanguage),
+            signal: controller.signal,
+            onDelta: (text) => post({ type: 'delta', text }),
+          });
+          result = { ok: true, text, model, costUsd };
+        } catch (e) {
+          if (controller.signal.aborted) {
+            result = { ok: false, error: 'Cancelled' };
+          } else if (e instanceof OpenRouterError) {
+            result = { ok: false, error: e.message, ...(e.code ? { code: 'no-key' as const } : {}) };
+          } else {
+            result = {
+              ok: false,
+              error: `Couldn't reach OpenRouter: ${e instanceof Error ? e.message : String(e)}`,
+            };
+          }
+        }
+      }
+      finished = true;
+      post({ type: 'done', result });
+      port.disconnect();
+    })();
+  });
+}
 
 async function handleYouglishEmbed(
   msg: M2YouglishEmbedRequest,

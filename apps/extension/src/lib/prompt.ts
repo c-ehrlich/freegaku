@@ -1,3 +1,5 @@
+import { guardFocus, isolateKeys } from './focus-guard';
+
 /** Minimal floating input for the Basic-card Front text.
  * Resolves the entered text, or null on Escape / click-outside / empty. */
 export function promptFront(prefill: string): Promise<string | null> {
@@ -58,9 +60,10 @@ export function promptFront(prefill: string): Promise<string | null> {
     wrap.addEventListener('mousedown', (e) => {
       if (e.target === wrap) finish(null);
     });
+    isolateKeys(input); // keep site shortcuts out of the input
+    guardFocus(input, () => input.isConnected);
     input.addEventListener('keydown', (e) => {
-      e.stopPropagation(); // keep YouTube's shortcuts out of the input
-      if (e.key === 'Enter') finish(input.value.trim() || null);
+      if (e.key === 'Enter' && !e.isComposing) finish(input.value.trim() || null);
       else if (e.key === 'Escape') finish(null);
     });
 

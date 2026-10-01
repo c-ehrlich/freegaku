@@ -1,10 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
+import { formatCost } from '../../lib/explain';
+import { checkKey } from '../../lib/openrouter';
 import { DEFAULT_SETTINGS } from '../../lib/settings';
 import type { M2Settings, MineContent, NoteTypeMapping } from '../../lib/settings';
 import { useAnki, useSettings } from './hooks';
 import type { AnkiData } from './hooks';
 
-const SECTIONS = ['Anki', 'Card mapping', 'Quick cards', 'Whisper', 'Hotkeys', 'Capture'] as const;
+const SECTIONS = [
+  'Anki',
+  'Card mapping',
+  'Quick cards',
+  'Whisper',
+  'Explain',
+  'Hotkeys',
+  'Capture',
+] as const;
 type Section = (typeof SECTIONS)[number];
 
 const CONTENT_LABELS: Record<MineContent, string> = {
@@ -58,6 +68,7 @@ export function App() {
           <QuickCardsSection settings={settings} update={update} anki={anki} />
         )}
         {section === 'Whisper' && <WhisperSection settings={settings} update={update} />}
+        {section === 'Explain' && <ExplainSection settings={settings} update={update} />}
         {section === 'Hotkeys' && <HotkeysSection settings={settings} update={update} />}
         {section === 'Capture' && <CaptureSection settings={settings} update={update} />}
       </main>
@@ -617,6 +628,85 @@ function WhisperSection({ settings, update }: SectionProps) {
             unit="× (YouTube only; video is muted while >1×. Netflix always 1×.)"
             onCommit={(generateRate) => update({ generateRate })}
           />
+        </div>
+      </div>
+    </>
+  );
+}
+
+function ExplainSection({ settings, update }: SectionProps) {
+  const [keyStatus, setKeyStatus] = useState<string | null>(null);
+  const testKey = async (): Promise<void> => {
+    setKeyStatus('Checking…');
+    try {
+      const info = await checkKey(settings.openRouterKey);
+      const spent = `${formatCost(info.usage)} used`;
+      setKeyStatus(
+        `Key works ✓ · ${info.limit === null ? spent : `${spent} of ${formatCost(info.limit)} limit`}`,
+      );
+    } catch (e) {
+      setKeyStatus(e instanceof Error ? e.message : String(e));
+    }
+  };
+  return (
+    <>
+      <h1>Explain</h1>
+      <p className="lede">
+        Select subtitle text and click 💡 Explain to ask why it's said the way it is. The model sees
+        the video details and the transcript up to shortly after your selection (so it can't spoil
+        what comes later). Requests go straight to OpenRouter with your key.
+      </p>
+      <div className="panel">
+        <div className="row">
+          <label htmlFor="openRouterKey">OpenRouter key</label>
+          <input
+            id="openRouterKey"
+            type="password"
+            style={{ width: 320 }}
+            placeholder="sk-or-…"
+            value={settings.openRouterKey}
+            onChange={(e) => {
+              setKeyStatus(null);
+              update({ openRouterKey: e.target.value.trim() });
+            }}
+          />
+          <button className="btn" onClick={() => void testKey()}>
+            Test
+          </button>
+        </div>
+        {keyStatus && (
+          <div className="row">
+            <label />
+            <span className="hint">{keyStatus}</span>
+          </div>
+        )}
+        <div className="row">
+          <label htmlFor="explainModel">Model</label>
+          <input
+            id="explainModel"
+            type="text"
+            style={{ width: 320 }}
+            value={settings.explainModel}
+            onChange={(e) => update({ explainModel: e.target.value })}
+            onBlur={(e) => {
+              if (!e.target.value.trim()) update({ explainModel: DEFAULT_SETTINGS.explainModel });
+            }}
+          />
+          <span className="hint">OpenRouter model id, e.g. {DEFAULT_SETTINGS.explainModel}</span>
+        </div>
+        <div className="row">
+          <label htmlFor="explainLanguage">Explain in</label>
+          <input
+            id="explainLanguage"
+            type="text"
+            style={{ width: 160 }}
+            value={settings.explainLanguage}
+            onChange={(e) => update({ explainLanguage: e.target.value })}
+            onBlur={(e) => {
+              if (!e.target.value.trim()) update({ explainLanguage: DEFAULT_SETTINGS.explainLanguage });
+            }}
+          />
+          <span className="hint">questions asked in another language are answered in that one</span>
         </div>
       </div>
     </>

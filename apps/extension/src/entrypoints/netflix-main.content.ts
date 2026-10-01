@@ -175,7 +175,11 @@ export default defineContentScript({
       }
     }
 
-    function getMetadata(movieId: string): { title: string; author: string } {
+    function getMetadata(movieId: string): {
+      title: string;
+      author: string;
+      details: Array<{ label: string; value: string }>;
+    } {
       try {
         const api = (
           window as unknown as {
@@ -201,18 +205,24 @@ export default defineContentScript({
           }
         ).netflix.appContext.state.playerApp.getAPI();
         const video = api.getVideoMetadataByVideoId?.(movieId)?.getCurrentVideo?.();
-        if (!video) return { title: '', author: 'Netflix' };
+        if (!video) return { title: '', author: 'Netflix', details: [] };
         const title = video.getTitle?.() ?? '';
         if (video.isEpisodic?.()) {
           const season = video.getSeason?.()?._season?.seq;
           const ep = video.getEpisodeNumber?.();
           const epTitle = video.getEpisodeTitle?.() ?? '';
           const se = season !== undefined && ep !== undefined ? ` S${season}E${ep}` : '';
-          return { title: `${title}${se}${epTitle ? ` — ${epTitle}` : ''}`, author: 'Netflix' };
+          const details = [
+            { label: 'Series', value: title },
+            { label: 'Season', value: season !== undefined ? String(season) : '' },
+            { label: 'Episode', value: ep !== undefined ? String(ep) : '' },
+            { label: 'Episode title', value: epTitle },
+          ].filter((d) => d.value);
+          return { title: `${title}${se}${epTitle ? ` — ${epTitle}` : ''}`, author: 'Netflix', details };
         }
-        return { title, author: 'Netflix' };
+        return { title, author: 'Netflix', details: [] };
       } catch {
-        return { title: '', author: 'Netflix' };
+        return { title: '', author: 'Netflix', details: [] };
       }
     }
 
@@ -233,7 +243,7 @@ export default defineContentScript({
     function postState(): void {
       const movieId = currentMovieId();
       const tracks = movieId ? (manifestTracks.get(movieId) ?? []) : [];
-      const meta = movieId ? getMetadata(movieId) : { title: '', author: '' };
+      const meta = movieId ? getMetadata(movieId) : { title: '', author: '', details: [] };
       // Title participates in the key: metadata often lags the first manifest,
       // so re-post once it becomes available.
       const key = `${movieId ?? 'null'}:${tracks.length}:${meta.title}`;
@@ -243,6 +253,7 @@ export default defineContentScript({
         videoId: movieId,
         title: meta.title,
         author: meta.author,
+        details: meta.details,
         source: 'netflix',
         tracks,
       };
