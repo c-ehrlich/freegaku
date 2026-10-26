@@ -76,8 +76,9 @@ html[dark] #m2-sidebar .m2-assistant-panel,
   user-select: text;
   -webkit-user-select: text;
 }
+/* A fixed height, so streaming fills the space instead of growing the panel. */
 #m2-sidebar .m2-assistant-thread {
-  max-height: min(42vh, 380px);
+  height: min(42vh, 380px);
   overflow-y: auto;
   font-size: 13px;
   line-height: 1.55;
