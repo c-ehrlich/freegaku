@@ -6,10 +6,12 @@ import {
   TargetWordMismatchError,
   updateLastMiningNote,
 } from '../lib/anki';
+import type { ChatMessage } from '../lib/assistant';
 import { buildExplainMessages } from '../lib/explain';
 import {
-  EXPLAIN_PORT,
+  ASSISTANT_PORT,
   isExplainRequest,
+  isSummaryRequest,
   isM24989MinePayload,
   isM2EmbedRequest,
   type M24989RuntimeMineRequest,
@@ -22,12 +24,14 @@ import {
   type MineResponse,
   type TargetCheckResponse,
   type M2YouglishEmbedRequest,
-  type ExplainPortClientMessage,
-  type ExplainPortServerMessage,
-  type ExplainResult,
+  type AssistantPortClientMessage,
+  type AssistantPortServerMessage,
+  type AssistantResult,
 } from '../lib/messages';
 import { OpenRouterError, streamChat } from '../lib/openrouter';
-import { getSettings } from '../lib/settings';
+import { getSettings, resolveModel } from '../lib/settings';
+import type { M2Settings } from '../lib/settings';
+import { buildSummaryMessages } from '../lib/summary';
 
 // AnkiConnect calls must originate from the extension origin — content-script
 // fetches carry the page origin, which AnkiConnect rejects.
@@ -102,7 +106,7 @@ export default defineBackground(() => {
   );
 
   browser.runtime.onConnect.addListener((port) => {
-    if (port.name === EXPLAIN_PORT) handleExplainPort(port);
+    if (port.name === ASSISTANT_PORT) handleAssistantPort(port);
   });
 });
 
@@ -136,12 +140,32 @@ function isAllowedSender(sender: Browser.runtime.MessageSender | undefined): boo
   }
 }
 
-// --- Explanations: one port per request; disconnect aborts the stream ---
+// --- Explanations and summaries: one port per request; disconnect aborts ---
 
-function handleExplainPort(port: Browser.runtime.Port): void {
+/** Model and prompt for a start message, or null when it is malformed. */
+function assistantCall(
+  start: Partial<AssistantPortClientMessage>,
+  settings: M2Settings,
+): { model: string; messages: ChatMessage[] } | null {
+  if (start.type === 'explain' && isExplainRequest(start.request)) {
+    return {
+      model: resolveModel(settings.explainModel),
+      messages: buildExplainMessages(start.request, settings.explainLanguage),
+    };
+  }
+  if (start.type === 'summarize' && isSummaryRequest(start.request)) {
+    return {
+      model: resolveModel(settings.summaryModel),
+      messages: buildSummaryMessages(start.request),
+    };
+  }
+  return null;
+}
+
+function handleAssistantPort(port: Browser.runtime.Port): void {
   const controller = new AbortController();
   let finished = false;
-  const post = (message: ExplainPortServerMessage): void => {
+  const post = (message: AssistantPortServerMessage): void => {
     try {
       port.postMessage(message);
     } catch {
@@ -152,24 +176,24 @@ function handleExplainPort(port: Browser.runtime.Port): void {
     if (!finished) controller.abort();
   });
   if (!isAllowedSender(port.sender)) {
-    post({ type: 'done', result: { ok: false, error: 'Explain is not allowed from this page.' } });
+    post({ type: 'done', result: { ok: false, error: 'Not allowed from this page.' } });
     port.disconnect();
     return;
   }
   port.onMessage.addListener((message: unknown) => {
-    const start = message as Partial<ExplainPortClientMessage>;
-    if (start?.type !== 'start') return;
+    const start = message as Partial<AssistantPortClientMessage>;
+    if (start?.type !== 'explain' && start?.type !== 'summarize') return;
     void (async () => {
-      let result: ExplainResult;
-      if (!isExplainRequest(start.request)) {
-        result = { ok: false, error: 'Invalid explain request.' };
+      let result: AssistantResult;
+      const settings = await getSettings();
+      const call = assistantCall(start, settings);
+      if (!call) {
+        result = { ok: false, error: 'Invalid request.' };
       } else {
-        const settings = await getSettings();
         try {
           const { text, model, costUsd } = await streamChat({
             apiKey: settings.openRouterKey.trim(),
-            model: settings.explainModel.trim() || 'anthropic/claude-sonnet-5',
-            messages: buildExplainMessages(start.request, settings.explainLanguage),
+            ...call,
             signal: controller.signal,
             onDelta: (text) => post({ type: 'delta', text }),
           });

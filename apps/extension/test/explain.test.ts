@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { createSseParser, formatCost } from '../src/lib/assistant';
 import {
   buildContextBlock,
   buildExplainMessages,
   buildSystemPrompt,
-  createSseParser,
-  formatCost,
   transcriptWindow,
 } from '../src/lib/explain';
 import { isExplainRequest, isM24989PageRequest } from '../src/lib/messages';

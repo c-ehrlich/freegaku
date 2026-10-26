@@ -1,8 +1,12 @@
 import type { SubtitleCue } from '@migaku2/subtitles';
 import { CaptureEditor } from './capture-editor';
 import type { CaptureEditorOptions } from './capture-editor';
-import { ExplainPanel } from './explain-panel';
-import type { ExplainContext, TrackInfo } from './messages';
+import { formatClock, toTranscriptCues } from './assistant';
+import { AssistantPanel } from './assistant-panel';
+import type { AssistantPanelOptions } from './assistant-panel';
+import { explainContextFromCues } from './explain';
+import type { AssistantTurn, TrackInfo, VideoInfo } from './messages';
+import { SUMMARY_MAX_CHARS, measureTranscript, summaryContextFromCues } from './summary';
 import { showToast } from './toast';
 
 export interface SidebarMineRequest {
@@ -137,11 +141,11 @@ html[dark] #m2-sidebar .m2-status {
 #m2-sidebar.m2-floating.m2-editing .m2-list {
   max-height: calc(100vh - 470px);
 }
-#m2-sidebar.m2-explaining .m2-list {
+#m2-sidebar.m2-assisting .m2-list {
   max-height: calc(100vh - 620px);
   min-height: 80px;
 }
-#m2-sidebar.m2-floating.m2-explaining .m2-list {
+#m2-sidebar.m2-floating.m2-assisting .m2-list {
   max-height: calc(100vh - 560px);
 }
 #m2-sidebar .m2-row {
@@ -245,7 +249,13 @@ export class Sidebar {
   private readonly chipEl: HTMLElement;
   private readonly chipAdjustEl: HTMLButtonElement;
   private readonly captureEditor: CaptureEditor;
-  private readonly explainPanel: ExplainPanel;
+  private readonly assistantPanel: AssistantPanel;
+  /** What the docked assistant panel is showing, if open. */
+  private assistantKind: 'explain' | 'summary' | null = null;
+  /** The summary thread for the cues it was written from; dropped when they change. */
+  private summary: SummaryState | null = null;
+  private generating = false;
+  private summarizeEl!: HTMLButtonElement;
   private genEl!: HTMLButtonElement;
   private copyEl!: HTMLButtonElement;
   private copyResetTimeout: number | undefined;
@@ -264,10 +274,12 @@ export class Sidebar {
   onMine?: (request: SidebarMineRequest) => void;
   /** ✨ button: start (or stop, while running) Whisper generation. */
   onGenerate?: () => void;
-  /** Site-specific context for 💡 Explain; null ignores the click. */
-  explainContext?: (request: SidebarMineRequest) => ExplainContext | null;
+  /** Details of the video playing, for 💡 Explain and 📝 Summary; null ignores the click. */
+  videoInfo?: () => VideoInfo | null;
 
   setGenerating(running: boolean): void {
+    this.generating = running;
+    this.renderSummarizeButton();
     this.genEl.textContent = running ? '⏹' : '✨';
     this.genEl.title = running ? 'Stop generating' : 'Generate subtitles with Whisper';
   }
@@ -307,7 +319,13 @@ export class Sidebar {
     this.copyEl.ariaLabel = 'Copy all subtitles';
     this.copyEl.disabled = true;
     this.copyEl.addEventListener('click', () => void this.copySubtitles());
-    header.append(title, this.selectEl, this.genEl, this.copyEl);
+    this.summarizeEl = document.createElement('button');
+    this.summarizeEl.className = 'm2-header-action m2-summarize';
+    this.summarizeEl.textContent = '📝';
+    this.summarizeEl.ariaLabel = 'Summarize this video';
+    this.summarizeEl.addEventListener('click', () => this.toggleSummaryPanel());
+    this.renderSummarizeButton();
+    header.append(title, this.selectEl, this.genEl, this.summarizeEl, this.copyEl);
 
     this.statusEl = document.createElement('div');
     this.statusEl.className = 'm2-status';
@@ -319,7 +337,7 @@ export class Sidebar {
     this.listEl.addEventListener('mouseleave', () => (this.hovering = false));
 
     this.captureEditor = new CaptureEditor();
-    this.explainPanel = new ExplainPanel();
+    this.assistantPanel = new AssistantPanel();
 
     // Floating chip shown for any subtitle text selection.
     // position: fixed escapes the host's overflow clipping.
@@ -353,7 +371,7 @@ export class Sidebar {
       this.statusEl,
       this.listEl,
       this.captureEditor.host,
-      this.explainPanel.host,
+      this.assistantPanel.host,
       this.chipEl,
     );
   }
@@ -376,10 +394,16 @@ export class Sidebar {
     this.cancelCaptureEditor();
     // Empty cues mean a new video or track is loading. Generation growing the
     // current track keeps an open explanation (its context is a snapshot).
-    if (cues.length === 0) this.closeExplainPanel();
+    if (cues.length === 0) this.closeAssistantPanel();
+    // A summary belongs to the exact transcript it was written from.
+    if (this.summary && this.summary.cues !== cues) {
+      this.summary = null;
+      if (this.assistantKind === 'summary') this.closeAssistantPanel();
+    }
     this.cues = cues;
     this.copyEl.disabled = cues.length === 0;
     this.copyEl.title = cues.length === 0 ? 'No subtitles to copy' : 'Copy all subtitles';
+    this.renderSummarizeButton();
     this.activeIndex = -1;
     this.hideChip();
     this.rows = cues.map((cue, i) => {
@@ -480,28 +504,121 @@ export class Sidebar {
     if (!visible) {
       this.hideChip();
       this.cancelCaptureEditor();
-      this.closeExplainPanel();
+      this.closeAssistantPanel();
     }
   }
 
   showExplainPanel(request: SidebarMineRequest): void {
-    const context = this.explainContext?.(request);
+    const info = this.videoInfo?.();
+    const selection = { from: request.from, to: request.to, selectedText: request.selText };
+    const context = info ? explainContextFromCues(this.cues, selection, info) : null;
     if (!context) return;
-    this.cancelCaptureEditor();
-    this.host.classList.add('m2-explaining');
-    this.explainPanel.open({
-      context,
-      onClose: () => this.host.classList.remove('m2-explaining'),
+    const count = context.to - context.from + 1;
+    this.openAssistantPanel('explain', {
+      title: '💡 Explain',
+      meta: count === 1 ? '1 selected line' : `${count} selected lines`,
+      quote: context.selectedText,
+      ask: { label: 'Explain', placeholder: 'What would you like explained? (optional)' },
+      start: (history, question) => ({ type: 'explain', request: { context, history, question } }),
     });
   }
 
-  closeExplainPanel(): void {
-    this.explainPanel.close();
-    this.host.classList.remove('m2-explaining');
+  /** 📝: open the summary (asking first when the transcript is over budget),
+   * or close it when it is already showing. */
+  private toggleSummaryPanel(): void {
+    if (this.assistantKind === 'summary') {
+      this.closeAssistantPanel();
+      return;
+    }
+    const info = this.videoInfo?.();
+    if (!info || this.cues.length === 0 || this.generating) return;
+    if (this.summary?.cues !== this.cues) {
+      this.summary = { cues: this.cues, cut: null, history: [], totalCost: null };
+    }
+    const state = this.summary;
+    const size = measureTranscript(toTranscriptCues(state.cues));
+    if (size.fitCount >= state.cues.length || state.cut !== null) {
+      this.openSummary(info, state);
+      return;
+    }
+    const pick = (cut: boolean) => () => {
+      state.cut = cut;
+      this.openSummary(info, state);
+    };
+    const cutAt = formatClock(state.cues[Math.max(0, size.fitCount - 1)]!.end);
+    this.openAssistantPanel('summary', {
+      title: '📝 Summary',
+      choice: {
+        message:
+          `This transcript is long: about ${thousands(size.chars)} characters ` +
+          `(≈ ${thousands(size.tokens)} tokens). Summaries normally send up to ` +
+          `${thousands(SUMMARY_MAX_CHARS)}.`,
+        options: [
+          { label: 'Cancel', pick: () => this.assistantPanel.cancel() },
+          { label: `Send first ${thousands(SUMMARY_MAX_CHARS)} (to ${cutAt})`, primary: true, pick: pick(true) },
+          { label: 'Send all', pick: pick(false) },
+        ],
+      },
+    });
+  }
+
+  private openSummary(info: VideoInfo, state: SummaryState): void {
+    const context = summaryContextFromCues(state.cues, info, state.cut === true);
+    const end = formatClock(state.cues[state.cues.length - 1]!.end);
+    this.openAssistantPanel('summary', {
+      title: '📝 Summary',
+      meta: context.cutAtMs === null ? 'whole video' : '',
+      notice:
+        context.cutAtMs === null
+          ? undefined
+          : `⚠ Transcript too long: this summary only covers the video up to ` +
+            `${formatClock(context.cutAtMs)} (of ${end}).`,
+      regenerate: true,
+      history: state.history,
+      totalCost: state.totalCost,
+      start: (history, question) => ({ type: 'summarize', request: { context, history, question } }),
+      onThread: (history, totalCost) => {
+        state.history = history;
+        state.totalCost = totalCost;
+      },
+    });
+  }
+
+  private openAssistantPanel(
+    kind: 'explain' | 'summary',
+    options: Omit<AssistantPanelOptions, 'onClose'>,
+  ): void {
+    this.cancelCaptureEditor();
+    this.host.classList.add('m2-assisting');
+    this.assistantKind = kind;
+    this.assistantPanel.open({
+      ...options,
+      onClose: () => {
+        this.host.classList.remove('m2-assisting');
+        this.assistantKind = null;
+      },
+    });
+  }
+
+  closeAssistantPanel(): void {
+    this.assistantPanel.close();
+    this.host.classList.remove('m2-assisting');
+    this.assistantKind = null;
+  }
+
+  private renderSummarizeButton(): void {
+    const el = this.summarizeEl;
+    el.disabled = this.cues.length === 0 || this.generating;
+    el.title =
+      this.cues.length === 0
+        ? 'No subtitles to summarize'
+        : this.generating
+          ? 'Available when generation finishes'
+          : 'Summarize this video';
   }
 
   showCaptureEditor(options: CaptureEditorOptions): void {
-    this.closeExplainPanel();
+    this.closeAssistantPanel();
     this.host.classList.add('m2-editing');
     this.captureEditor.open({
       ...options,
@@ -660,4 +777,17 @@ function formatTime(ms: number): string {
   const s = total % 60;
   const mmss = `${m}:${String(s).padStart(2, '0')}`;
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : mmss;
+}
+
+interface SummaryState {
+  cues: SubtitleCue[];
+  /** The learner's answer to the over-budget question; null = not asked. */
+  cut: boolean | null;
+  history: AssistantTurn[];
+  totalCost: number | null;
+}
+
+/** 412345 → '412k'. */
+function thousands(n: number): string {
+  return n < 1000 ? String(n) : `${Math.round(n / 1000)}k`;
 }

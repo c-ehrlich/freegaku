@@ -34,10 +34,24 @@ export interface M2Settings {
   generateRate: number;
   /** OpenRouter API key for explanations; empty = Explain shows a setup hint. */
   openRouterKey: string;
-  /** OpenRouter model id used for explanations. */
+  /** OpenRouter model id used for explanations; '' = DEFAULT_MODEL. */
   explainModel: string;
   /** Language explanations are written in, unless the question is in another. */
   explainLanguage: string;
+  /** OpenRouter model id used for summaries; '' = DEFAULT_MODEL. */
+  summaryModel: string;
+}
+
+/** Model used when explainModel/summaryModel is '' ("Default"). Bumping it
+ * moves everyone who hasn't picked a custom model. */
+export const DEFAULT_MODEL = { id: 'anthropic/claude-haiku-5.5', label: 'Claude Haiku 5.5' };
+
+/** Former defaults, which used to be saved verbatim; treated as '' on load. */
+const PAST_DEFAULT_MODELS = ['anthropic/claude-sonnet-5'];
+
+/** The OpenRouter model id to call for a stored model setting. */
+export function resolveModel(model: string): string {
+  return model.trim() || DEFAULT_MODEL.id;
 }
 
 const DEFAULT_FIELDS: Record<MineContent, string | null> = {
@@ -66,8 +80,9 @@ export const DEFAULT_SETTINGS: M2Settings = {
   whisperLang: 'ja',
   generateRate: 2,
   openRouterKey: '',
-  explainModel: 'anthropic/claude-sonnet-5',
+  explainModel: '',
   explainLanguage: 'English',
+  summaryModel: '',
 };
 
 const STORAGE_KEY = 'settings';
@@ -90,6 +105,9 @@ export async function getSettings(): Promise<M2Settings> {
     ...mapping,
     fields: { ...DEFAULT_FIELDS, ...(mapping.fields ?? {}) },
   }));
+  // Saving settings used to store the default model id, pinning it.
+  if (PAST_DEFAULT_MODELS.includes(settings.explainModel)) settings.explainModel = '';
+  if (PAST_DEFAULT_MODELS.includes(settings.summaryModel)) settings.summaryModel = '';
   return settings;
 }
 

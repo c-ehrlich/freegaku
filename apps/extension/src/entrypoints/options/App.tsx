@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { formatCost } from '../../lib/explain';
+import { formatCost } from '../../lib/assistant';
 import { checkKey } from '../../lib/openrouter';
-import { DEFAULT_SETTINGS } from '../../lib/settings';
+import { DEFAULT_MODEL, DEFAULT_SETTINGS } from '../../lib/settings';
 import type { M2Settings, MineContent, NoteTypeMapping } from '../../lib/settings';
 import { useAnki, useSettings } from './hooks';
 import type { AnkiData } from './hooks';
@@ -11,7 +11,7 @@ const SECTIONS = [
   'Card mapping',
   'Quick cards',
   'Whisper',
-  'Explain',
+  'AI',
   'Hotkeys',
   'Capture',
 ] as const;
@@ -68,7 +68,7 @@ export function App() {
           <QuickCardsSection settings={settings} update={update} anki={anki} />
         )}
         {section === 'Whisper' && <WhisperSection settings={settings} update={update} />}
-        {section === 'Explain' && <ExplainSection settings={settings} update={update} />}
+        {section === 'AI' && <AiSection settings={settings} update={update} />}
         {section === 'Hotkeys' && <HotkeysSection settings={settings} update={update} />}
         {section === 'Capture' && <CaptureSection settings={settings} update={update} />}
       </main>
@@ -634,7 +634,7 @@ function WhisperSection({ settings, update }: SectionProps) {
   );
 }
 
-function ExplainSection({ settings, update }: SectionProps) {
+function AiSection({ settings, update }: SectionProps) {
   const [keyStatus, setKeyStatus] = useState<string | null>(null);
   const testKey = async (): Promise<void> => {
     setKeyStatus('Checking…');
@@ -650,11 +650,12 @@ function ExplainSection({ settings, update }: SectionProps) {
   };
   return (
     <>
-      <h1>Explain</h1>
+      <h1>AI</h1>
       <p className="lede">
         Select subtitle text and click 💡 Explain to ask why it's said the way it is. The model sees
         the video details and the transcript up to shortly after your selection (so it can't spoil
-        what comes later). Requests go straight to OpenRouter with your key.
+        what comes later). Click 📝 in the sidebar header for a short summary of the whole video,
+        written in the subtitles' language. Requests go straight to OpenRouter with your key.
       </p>
       <div className="panel">
         <div className="row">
@@ -681,18 +682,12 @@ function ExplainSection({ settings, update }: SectionProps) {
           </div>
         )}
         <div className="row">
-          <label htmlFor="explainModel">Model</label>
-          <input
+          <label htmlFor="explainModel">Explain model</label>
+          <AiModelPicker
             id="explainModel"
-            type="text"
-            style={{ width: 320 }}
             value={settings.explainModel}
-            onChange={(e) => update({ explainModel: e.target.value })}
-            onBlur={(e) => {
-              if (!e.target.value.trim()) update({ explainModel: DEFAULT_SETTINGS.explainModel });
-            }}
+            onChange={(explainModel) => update({ explainModel })}
           />
-          <span className="hint">OpenRouter model id, e.g. {DEFAULT_SETTINGS.explainModel}</span>
         </div>
         <div className="row">
           <label htmlFor="explainLanguage">Explain in</label>
@@ -708,7 +703,61 @@ function ExplainSection({ settings, update }: SectionProps) {
           />
           <span className="hint">questions asked in another language are answered in that one</span>
         </div>
+        <div className="row">
+          <label htmlFor="summaryModel">Summary model</label>
+          <AiModelPicker
+            id="summaryModel"
+            value={settings.summaryModel}
+            onChange={(summaryModel) => update({ summaryModel })}
+          />
+          <span className="hint">sees the whole transcript, so a long-context model helps</span>
+        </div>
       </div>
+    </>
+  );
+}
+
+/** "Default (…)" stores '' so the model follows future default bumps; "Custom…"
+ * reveals a free-text OpenRouter model id. */
+function AiModelPicker({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  onChange: (model: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const custom = editing || value.trim() !== '';
+  const useDefault = () => {
+    setEditing(false);
+    onChange('');
+  };
+  return (
+    <>
+      <select
+        id={custom ? undefined : id}
+        value={custom ? 'custom' : 'default'}
+        onChange={(e) => (e.target.value === 'custom' ? setEditing(true) : useDefault())}
+      >
+        <option value="default">Default ({DEFAULT_MODEL.label})</option>
+        <option value="custom">Custom…</option>
+      </select>
+      {custom && (
+        <input
+          id={id}
+          type="text"
+          style={{ width: 260 }}
+          placeholder={DEFAULT_MODEL.id}
+          autoFocus={editing}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={(e) => {
+            if (!e.target.value.trim()) useDefault();
+          }}
+        />
+      )}
     </>
   );
 }

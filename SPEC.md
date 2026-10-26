@@ -127,6 +127,16 @@ apps/worker/     (future) CF Worker: yt-dlp-style audio grab + server-side ASR f
    auto-generated transcripts are flagged at the top of the prompt. 4989 gets
    the same via protocol v4 (explain / explain-delta / explain-cancel), with
    the relay still answering v3 pages.
+9. **Summary** ✅: 📝 in the sidebar header (YouTube, Netflix, YouGlish; not
+   4989) → the same docked panel, generating immediately from the whole
+   transcript (spoilers included) with its own model setting. Prompt is
+   English for `en`, Japanese for `ja`, else English asking for the
+   transcript's language: one-sentence answer to the title, then a few short
+   bullets (under a minute to read). Follow-ups and ↻ Regenerate; the thread
+   lives in memory until the cues change. Disabled while Whisper is
+   generating. Over 250k characters the panel asks first: cancel, send the
+   first 250k (a banner says where it stops) or send all (token estimate
+   shown). Explain and Summary share one OpenRouter port (`m2-assistant`).
 
 ## Known risks
 
