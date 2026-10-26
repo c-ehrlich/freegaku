@@ -39,4 +39,14 @@ The panel opened by "💡 Explain", where the learner can optionally say what th
 _Avoid_: Explain popover, chat
 
 **Follow-up**:
-A further question asked in the explain panel that continues the same explanation thread; the thread ends when the panel closes.
+A further question asked in the explain panel or summary panel that continues the same thread. An explanation thread ends when its panel closes; a summary thread lasts until the learner leaves the video.
+
+### Summarizing
+
+**Summary**:
+A short LLM-written digest of the whole transcript, in the transcript's language, that opens by answering the question the title poses (or stating the main point) and takes under a minute to read. Unlike an explanation it covers the whole video, spoilers included. Kept only while the learner stays on the video; never stored.
+_Avoid_: Recap, synopsis, TL;DR
+
+**Summary panel**:
+The panel opened by the 📝 header button, showing the summary and taking follow-ups.
+_Avoid_: Summary popover, chat

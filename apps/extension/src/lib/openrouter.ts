@@ -1,5 +1,5 @@
-import { createSseParser } from './explain';
-import type { ChatMessage } from './explain';
+import { createSseParser } from './assistant';
+import type { ChatMessage } from './assistant';
 
 // OpenRouter chat completions, called from the service worker with the
 // user's key (host permission in wxt.config.ts).

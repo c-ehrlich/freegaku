@@ -1,11 +1,12 @@
 import {
-  EXPLAIN_PORT,
+  ASSISTANT_PORT,
   M2_4989_CHANNEL,
   M2_4989_SUPPORTED_VERSIONS,
   isM24989PageRequest,
-  type ExplainPortClientMessage,
-  type ExplainPortServerMessage,
-  type ExplainResult,
+  type AssistantPortClientMessage,
+  type AssistantPortServerMessage,
+  type AssistantResult,
+  type ExplainRequest,
   type M24989ProtocolVersion,
   type M2TargetCheckRequest,
   type M24989RuntimeMineRequest,
@@ -23,7 +24,7 @@ const MATCHES = [
 type Reply =
   | { type: 'ready' }
   | { type: 'status'; requestId: string; phase: M24989RuntimeStatus['phase'] }
-  | { type: 'result'; requestId: string; result: MineResponse | TargetCheckResponse | ExplainResult }
+  | { type: 'result'; requestId: string; result: MineResponse | TargetCheckResponse | AssistantResult }
   | { type: 'explain-delta'; requestId: string; text: string };
 
 export default defineContentScript({
@@ -63,13 +64,13 @@ export default defineContentScript({
         .finally(() => requestVersions.delete(requestId));
     };
 
-    const startExplain = (requestId: string, request: ExplainPortClientMessage['request']): void => {
+    const startExplain = (requestId: string, request: ExplainRequest): void => {
       explainPorts.get(requestId)?.disconnect();
-      const port = browser.runtime.connect({ name: EXPLAIN_PORT });
+      const port = browser.runtime.connect({ name: ASSISTANT_PORT });
       explainPorts.set(requestId, port);
       let done = false;
       port.onMessage.addListener((message: unknown) => {
-        const msg = message as ExplainPortServerMessage;
+        const msg = message as AssistantPortServerMessage;
         if (msg.type === 'delta') post(4, { type: 'explain-delta', requestId, text: msg.text });
         else if (msg.type === 'done') {
           done = true;
@@ -87,7 +88,7 @@ export default defineContentScript({
           });
         }
       });
-      port.postMessage({ type: 'start', request } satisfies ExplainPortClientMessage);
+      port.postMessage({ type: 'explain', request } satisfies AssistantPortClientMessage);
     };
 
     browser.runtime.onMessage.addListener((message: unknown) => {
