@@ -1,3 +1,5 @@
+import { icon, setButtonContent } from './ui/icons';
+
 export interface CaptureDraft {
   startMs: number;
   endMs: number;
@@ -21,29 +23,15 @@ const FRAME_DEBOUNCE_MS = 250;
 
 const CSS = `
 #m2-sidebar .m2-capture-editor {
-  --m2-editor-accent: #3ea6ff;
-  --m2-editor-ink: #0f0f0f;
-  --m2-editor-muted: #606060;
-  --m2-editor-panel: rgba(255, 255, 255, 0.86);
-  --m2-editor-track: rgba(15, 15, 15, 0.13);
-  --m2-editor-cue: rgba(62, 166, 255, 0.11);
+  --m2-editor-track: var(--m2-input);
+  --m2-editor-cue: color-mix(in srgb, var(--m2-primary) 16%, transparent);
+  --m2-editor-cue-alt: color-mix(in srgb, var(--m2-primary) 26%, transparent);
+  --m2-editor-cue-edge: color-mix(in srgb, var(--m2-primary) 60%, transparent);
   display: none;
   flex: none;
   padding: 12px;
-  border-top: 1px solid rgba(128, 128, 128, 0.28);
-  background: var(--m2-editor-panel);
-  color: var(--m2-editor-ink);
-  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.06);
-  backdrop-filter: blur(14px);
-}
-html[dark] #m2-sidebar .m2-capture-editor,
-#m2-sidebar.m2-nf .m2-capture-editor {
-  --m2-editor-ink: #f1f1f1;
-  --m2-editor-muted: #aaa;
-  --m2-editor-panel: rgba(20, 20, 20, 0.94);
-  --m2-editor-track: rgba(255, 255, 255, 0.16);
-  --m2-editor-cue: rgba(62, 166, 255, 0.13);
-  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.24);
+  border-top: 1px solid var(--m2-border);
+  background: var(--m2-bg);
 }
 #m2-sidebar .m2-capture-editor.m2-open {
   display: block;
@@ -60,36 +48,51 @@ html[dark] #m2-sidebar .m2-capture-editor,
   align-items: center;
 }
 #m2-sidebar .m2-editor-heading {
-  justify-content: space-between;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin: -2px -4px 12px 0;
+}
+#m2-sidebar .m2-editor-heading > .m2-icon {
+  color: var(--m2-primary);
 }
 #m2-sidebar .m2-editor-title {
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.01em;
+}
+#m2-sidebar .m2-editor-lines {
+  flex: 1;
 }
 #m2-sidebar .m2-editor-lines,
 #m2-sidebar .m2-editor-readout,
 #m2-sidebar .m2-editor-hint {
-  color: var(--m2-editor-muted);
-  font-size: 11px;
+  color: var(--m2-muted-fg);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+#m2-sidebar .m2-editor-section {
+  padding: 10px 12px 8px;
+  border-radius: var(--m2-radius-sm);
+  background: var(--m2-muted);
 }
 #m2-sidebar .m2-editor-section + .m2-editor-section {
-  margin-top: 14px;
+  margin-top: 8px;
 }
 #m2-sidebar .m2-editor-section-head {
   justify-content: space-between;
-  margin-bottom: 7px;
+  margin-bottom: 6px;
 }
-#m2-sidebar .m2-editor-label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+#m2-sidebar .m2-editor-section-head .m2-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#m2-sidebar .m2-editor-section-head .m2-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--m2-muted-fg);
 }
 #m2-sidebar .m2-editor-audio-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 32px;
+  grid-template-columns: minmax(0, 1fr) 30px;
   align-items: center;
   gap: 8px;
 }
@@ -125,17 +128,17 @@ html[dark] #m2-sidebar .m2-capture-editor,
   box-sizing: border-box;
   height: 15px;
   overflow: visible;
-  border: 1px solid rgba(62, 166, 255, 0.62);
+  border: 1px solid var(--m2-editor-cue-edge);
   border-radius: 3px;
-  background: rgba(62, 166, 255, 0.15);
-  color: var(--m2-editor-accent);
+  background: var(--m2-editor-cue);
+  color: var(--m2-primary);
   font-size: 9px;
   font-weight: 700;
   line-height: 13px;
   text-align: center;
 }
 #m2-sidebar .m2-editor-cue:nth-child(even) {
-  background: rgba(62, 166, 255, 0.25);
+  background: var(--m2-editor-cue-alt);
 }
 #m2-sidebar .m2-editor-cue::after {
   content: "";
@@ -143,7 +146,7 @@ html[dark] #m2-sidebar .m2-capture-editor,
   left: -1px;
   top: 14px;
   height: 12px;
-  border-left: 1px solid rgba(62, 166, 255, 0.62);
+  border-left: 1px solid var(--m2-editor-cue-edge);
 }
 #m2-sidebar .m2-editor-cue:last-child::before {
   content: "";
@@ -151,13 +154,12 @@ html[dark] #m2-sidebar .m2-capture-editor,
   right: -1px;
   top: 14px;
   height: 12px;
-  border-right: 1px solid rgba(62, 166, 255, 0.62);
+  border-right: 1px solid var(--m2-editor-cue-edge);
 }
 #m2-sidebar .m2-editor-fill {
   left: calc(7px + (100% - 14px) * var(--m2-from));
   right: calc(7px + (100% - 14px) * (1 - var(--m2-to)));
-  background: var(--m2-editor-accent);
-  box-shadow: 0 0 9px rgba(62, 166, 255, 0.32);
+  background: var(--m2-primary);
 }
 #m2-sidebar .m2-editor-slider {
   position: absolute;
@@ -182,12 +184,15 @@ html[dark] #m2-sidebar .m2-capture-editor,
   margin-top: -6px;
   appearance: none;
   -webkit-appearance: none;
-  border: 2px solid var(--m2-editor-panel);
+  border: 2px solid var(--m2-primary);
   border-radius: 50%;
-  background: var(--m2-editor-accent);
-  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.45);
+  background: var(--m2-bg);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
   cursor: ew-resize;
   pointer-events: auto;
+}
+#m2-sidebar .m2-editor-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px var(--m2-ring);
 }
 #m2-sidebar .m2-editor-frame-slider {
   position: static;
@@ -201,77 +206,50 @@ html[dark] #m2-sidebar .m2-capture-editor,
     to right,
     var(--m2-editor-track) 0%,
     var(--m2-editor-track) var(--m2-frame-from),
-    var(--m2-editor-accent) var(--m2-frame-from),
-    var(--m2-editor-accent) var(--m2-frame-to),
+    var(--m2-editor-cue-edge) var(--m2-frame-from),
+    var(--m2-editor-cue-edge) var(--m2-frame-to),
     var(--m2-editor-track) var(--m2-frame-to),
     var(--m2-editor-track) 100%
   );
 }
-#m2-sidebar .m2-editor-play,
-#m2-sidebar .m2-editor-button,
-#m2-sidebar .m2-editor-close {
-  border: none;
-  font: inherit;
-  cursor: pointer;
-}
 #m2-sidebar .m2-editor-play {
-  width: 32px;
-  height: 32px;
-  padding: 0;
   border-radius: 50%;
-  background: rgba(62, 166, 255, 0.16);
-  color: var(--m2-editor-accent);
-  font-size: 13px;
+  background: var(--m2-primary-soft);
+  color: var(--m2-primary);
 }
-#m2-sidebar .m2-editor-play:hover {
-  background: rgba(62, 166, 255, 0.25);
+#m2-sidebar .m2-editor-play .m2-icon {
+  width: 13px;
+  height: 13px;
 }
-#m2-sidebar .m2-editor-close {
-  padding: 2px 4px;
-  background: transparent;
-  color: var(--m2-editor-muted);
-  font-size: 18px;
-  line-height: 1;
+#m2-sidebar .m2-editor-play:hover:not(:disabled) {
+  background: var(--m2-primary);
+  color: var(--m2-primary-fg);
 }
 #m2-sidebar .m2-editor-time-row {
   display: flex;
   justify-content: space-between;
-  padding-right: 40px;
+  padding-right: 38px;
   margin-top: -2px;
-  color: var(--m2-editor-muted);
+  color: var(--m2-muted-fg);
   font-variant-numeric: tabular-nums;
-  font-size: 10px;
+  font-size: 10.5px;
 }
 #m2-sidebar .m2-editor-hint {
-  margin-top: 4px;
+  margin-top: 2px;
 }
 #m2-sidebar .m2-editor-actions {
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 14px;
-}
-#m2-sidebar .m2-editor-button {
-  padding: 7px 11px;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--m2-editor-muted);
-  font-size: 12px;
-  font-weight: 500;
-}
-#m2-sidebar .m2-editor-button:hover {
-  background: rgba(128, 128, 128, 0.14);
-}
-#m2-sidebar .m2-editor-button.m2-primary {
-  background: var(--m2-editor-accent);
-  color: #fff;
-}
-#m2-sidebar .m2-editor-button.m2-primary:hover {
-  background: #2d96eb;
+  gap: 4px;
+  margin-top: 12px;
 }
 #m2-sidebar .m2-capture-editor.m2-busy button,
 #m2-sidebar .m2-capture-editor.m2-busy input {
   pointer-events: none;
   opacity: 0.58;
+}
+#m2-sidebar .m2-capture-editor .m2-btn {
+  height: 32px;
+  font-size: 13px;
 }
 `;
 
@@ -302,16 +280,17 @@ export class CaptureEditor {
     style.textContent = CSS;
 
     const heading = element('div', 'm2-editor-heading');
-    const title = element('span', 'm2-editor-title', 'Edit capture');
+    const title = element('span', 'm2-editor-title', 'Adjust capture');
     this.lineLabel = element('span', 'm2-editor-lines');
-    const close = button('m2-editor-close', '×', 'Cancel editing');
+    const close = button('m2-icon-btn', '', 'Cancel editing');
+    close.append(icon('x'));
     close.addEventListener('click', () => this.cancel());
-    heading.append(title, this.lineLabel, close);
+    heading.append(icon('scissors'), title, this.lineLabel, close);
 
     const audioSection = element('div', 'm2-editor-section');
     const audioHead = element('div', 'm2-editor-section-head');
     audioHead.append(
-      element('span', 'm2-editor-label', 'Audio'),
+      label('volume', 'Audio'),
       (this.durationLabel = element('span', 'm2-editor-readout')),
     );
     const audioRow = element('div', 'm2-editor-audio-row');
@@ -324,7 +303,8 @@ export class CaptureEditor {
     this.fromInput = rangeInput('Audio start');
     this.toInput = rangeInput('Audio end');
     this.rangeEl.append(this.fromInput, this.toInput);
-    this.playButton = button('m2-editor-play', '▶', 'Preview selected audio');
+    this.playButton = button('m2-icon-btn m2-editor-play', '', 'Preview selected audio');
+    setButtonContent(this.playButton, 'play');
     audioRow.append(this.rangeEl, this.playButton);
     const timeRow = element('div', 'm2-editor-time-row');
     timeRow.append(
@@ -336,7 +316,7 @@ export class CaptureEditor {
     const frameSection = element('div', 'm2-editor-section');
     const frameHead = element('div', 'm2-editor-section-head');
     frameHead.append(
-      element('span', 'm2-editor-label', 'Screenshot frame'),
+      label('image', 'Screenshot'),
       (this.frameLabel = element('span', 'm2-editor-readout')),
     );
     this.frameInput = rangeInput('Screenshot time');
@@ -344,12 +324,13 @@ export class CaptureEditor {
     frameSection.append(
       frameHead,
       this.frameInput,
-      element('div', 'm2-editor-hint', 'Preview updates in the video'),
+      element('div', 'm2-editor-hint', 'The video shows the chosen frame'),
     );
 
     const actions = element('div', 'm2-editor-actions');
-    const cancel = button('m2-editor-button', 'Cancel');
-    this.confirmButton = button('m2-editor-button m2-primary', 'Add to Anki');
+    const cancel = button('m2-btn m2-muted', 'Cancel');
+    this.confirmButton = button('m2-btn m2-primary', '');
+    setButtonContent(this.confirmButton, 'plus', 'Add to Anki');
     cancel.addEventListener('click', () => this.cancel());
     actions.append(cancel, this.confirmButton);
 
@@ -404,9 +385,9 @@ export class CaptureEditor {
     this.options = null;
     this.previewing = false;
     this.host.classList.remove('m2-open', 'm2-busy');
-    this.playButton.textContent = '▶';
+    setButtonContent(this.playButton, 'play');
     this.playButton.title = 'Preview selected audio';
-    this.confirmButton.textContent = 'Add to Anki';
+    setButtonContent(this.confirmButton, 'plus', 'Add to Anki');
   }
 
   private draft(): CaptureDraft {
@@ -456,7 +437,7 @@ export class CaptureEditor {
     this.frameInput.style.setProperty('--m2-frame-to', `${to * 100}%`);
     this.startLabel.textContent = formatTimestamp(draft.startMs);
     this.endLabel.textContent = formatTimestamp(draft.endMs);
-    this.durationLabel.textContent = `${((draft.endMs - draft.startMs) / 1000).toFixed(2)} seconds`;
+    this.durationLabel.textContent = `${((draft.endMs - draft.startMs) / 1000).toFixed(2)} s`;
     this.frameLabel.textContent = formatTimestamp(draft.imageMs);
   }
 
@@ -492,13 +473,13 @@ export class CaptureEditor {
     }
     clearTimeout(this.frameTimer);
     this.previewing = true;
-    this.playButton.textContent = '■';
+    setButtonContent(this.playButton, 'stop');
     this.playButton.title = 'Playing preview';
     try {
       await this.options.onPreviewAudio(this.draft());
     } finally {
       this.previewing = false;
-      this.playButton.textContent = '▶';
+      setButtonContent(this.playButton, 'play');
       this.playButton.title = 'Preview selected audio';
     }
   }
@@ -510,14 +491,14 @@ export class CaptureEditor {
     this.frameTimer = undefined;
     if (this.previewing) options.onFrameChange(this.draft().imageMs);
     this.host.classList.add('m2-busy');
-    this.confirmButton.textContent = 'Adding…';
+    setButtonContent(this.confirmButton, 'loader', 'Adding…');
     try {
       const shouldClose = await options.onConfirm(this.draft());
       if (shouldClose && this.options === options) this.close();
     } finally {
       if (this.options === options) {
         this.host.classList.remove('m2-busy');
-        this.confirmButton.textContent = 'Add to Anki';
+        setButtonContent(this.confirmButton, 'plus', 'Add to Anki');
       }
     }
   }
@@ -538,6 +519,12 @@ function button(className: string, text: string, title = ''): HTMLButtonElement 
   const el = element('button', className, text);
   el.type = 'button';
   el.title = title;
+  return el;
+}
+
+function label(name: Parameters<typeof icon>[0], text: string): HTMLElement {
+  const el = element('span', 'm2-label');
+  el.append(icon(name), text);
   return el;
 }
 

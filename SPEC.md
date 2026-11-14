@@ -114,20 +114,20 @@ apps/worker/     (future) CF Worker: yt-dlp-style audio grab + server-side ASR f
    the activeTab permission tab capture requires (one press per browser
    session unlocks the ＋ buttons too). Verified live against real Netflix
    (ja CC track, episodic metadata in Origin). See docs/netflix.md.
-7. **Whisper generation** ✅: sidebar ✨ button generates subtitles for videos
+7. **Whisper generation** ✅: sidebar waveform button generates subtitles for videos
    without any — rolling 30s playback-capture chunks (captureStream / tabCapture)
    → 16kHz WAV → apps/worker (local wrangler dev; OpenAI Whisper, MOCK_ASR test
    mode) → progressive cues, cached per video, minable like any track. YouTube
    fast mode (2x muted). Direct googlevideo audio download is NOT viable (GVS
    POT enforcement — 403 on all InnerTube clients, verified 2026-07).
-8. **Explain** ✅: selection chip 💡 Explain → panel docked in the sidebar;
+8. **Explain** ✅: selection chip Explain → panel docked in the sidebar;
    streams an explanation from OpenRouter (user's key/model/language in
    settings) with follow-ups, copy and cost. Context = video details + the
    transcript up to 20 cues past the selection (spoiler-safe, prompt-cached);
    auto-generated transcripts are flagged at the top of the prompt. 4989 gets
    the same via protocol v4 (explain / explain-delta / explain-cancel), with
    the relay still answering v3 pages.
-9. **Summary** ✅: 📝 in the sidebar header (YouTube, Netflix, YouGlish; not
+9. **Summary** ✅: the sparkle button in the sidebar header (YouTube, Netflix, YouGlish; not
    4989) → the same docked panel, generating immediately from the whole
    transcript (spoilers included) with its own model setting. Prompt is
    English for `en`, Japanese for `ja`, else English asking for the

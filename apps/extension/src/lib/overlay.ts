@@ -1,6 +1,8 @@
 // Current-line subtitle overlay rendered inside #movie_player. Plain DOM so
 // Yomitan can scan it. Text is selectable; the wrapper ignores pointer events
 // so player clicks still work everywhere else.
+import { ensureUiStyles } from './ui/tokens';
+
 const CSS = `
 #m2-overlay {
   position: absolute;
@@ -18,7 +20,7 @@ const CSS = `
   max-width: 86%;
   background: rgba(8, 8, 8, 0.75);
   color: #fff;
-  font-family: "Roboto", "Noto Sans JP", sans-serif;
+  font-family: var(--m2-font-cue, "Roboto", "Noto Sans JP", sans-serif);
   font-size: clamp(16px, 2.4vw, 42px);
   line-height: 1.45;
   padding: 3px 14px;
@@ -35,8 +37,10 @@ export class Overlay {
   private currentText: string | null = null;
 
   constructor() {
+    ensureUiStyles();
     this.host = document.createElement('div');
     this.host.id = 'm2-overlay';
+    this.host.className = 'm2-theme';
     const style = document.createElement('style');
     style.textContent = CSS;
     this.textEl = document.createElement('span');

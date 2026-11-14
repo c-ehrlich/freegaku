@@ -8,6 +8,8 @@ import { explainContextFromCues } from './explain';
 import type { AssistantTurn, TrackInfo, VideoInfo } from './messages';
 import { SUMMARY_MAX_CHARS, measureTranscript, summaryContextFromCues } from './summary';
 import { showToast } from './toast';
+import { icon, setButtonContent } from './ui/icons';
+import { ensureUiStyles } from './ui/tokens';
 
 export interface SidebarMineRequest {
   from: number;
@@ -23,17 +25,18 @@ export interface SidebarMineRequest {
 
 // Plain DOM, no shadow root: Yomitan must be able to scan the subtitle text,
 // and shadow-root piercing is not something we can rely on. All styles are
-// namespaced under #m2-sidebar and scoped with high-specificity selectors.
+// namespaced under #m2-sidebar and scoped with high-specificity selectors;
+// colors, type and shape come from the tokens in ./ui/tokens.
 //
 // YouTube sets <html dark> in dark mode; its --yt-spec-* vars aren't reliably
-// resolvable from injected elements, so colors are explicit per theme.
+// resolvable from injected elements, so the tokens carry both themes.
 const CSS = `
 #m2-sidebar {
-  background: rgba(0, 0, 0, 0.05);
-  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  background: var(--m2-surface);
+  border-radius: var(--m2-radius);
   margin-bottom: 16px;
-  font-family: "Roboto", "Noto Sans JP", sans-serif;
-  color: #0f0f0f;
   overflow: hidden;
 }
 #m2-sidebar.m2-floating {
@@ -46,83 +49,42 @@ const CSS = `
   width: min(420px, calc(100vw - 32px));
   max-height: calc(100vh - 88px);
   margin: 0;
-  background: #fff;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  background: var(--m2-bg);
+  border: 1px solid var(--m2-border);
+  box-shadow: var(--m2-shadow);
 }
 :fullscreen #m2-sidebar.m2-floating {
   top: 16px;
   max-height: calc(100vh - 32px);
 }
-html[dark] #m2-sidebar {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f1f1f1;
-}
-html[dark] #m2-sidebar.m2-floating {
-  background: #212121;
-}
 #m2-sidebar .m2-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+  gap: 4px;
+  padding: 8px 8px 4px 12px;
 }
 #m2-sidebar .m2-title {
-  font-size: 13px;
-  font-weight: 500;
   flex: none;
+  margin-right: 6px;
+  font-size: 14px;
+  font-weight: 700;
 }
 #m2-sidebar .m2-track-select {
   flex: 1;
-  min-width: 0;
-  font: inherit;
-  font-size: 12px;
-  color: inherit;
-  background: transparent;
-  border: 1px solid rgba(128, 128, 128, 0.35);
-  border-radius: 6px;
-  padding: 3px 6px;
-}
-#m2-sidebar .m2-track-select option {
-  color: initial;
-  background: initial;
-}
-#m2-sidebar .m2-header-action {
-  flex: none;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
-  font-size: 15px;
-  line-height: 28px;
-  text-align: center;
-  cursor: pointer;
-  padding: 0;
-}
-#m2-sidebar .m2-header-action:hover:not(:disabled) {
-  background: rgba(128, 128, 128, 0.2);
-}
-#m2-sidebar .m2-header-action:disabled {
-  cursor: default;
-  opacity: 0.35;
+  margin-right: 4px;
 }
 #m2-sidebar .m2-status {
-  padding: 14px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
   font-size: 13px;
-  color: #606060;
+  color: var(--m2-muted-fg);
 }
-html[dark] #m2-sidebar .m2-status {
-  color: #aaa;
-}
-#m2-sidebar .m2-status button {
-  font: inherit;
-  color: #3ea6ff;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0;
-  margin-left: 6px;
+#m2-sidebar .m2-status .m2-btn {
+  height: 28px;
+  font-size: 13px;
+  margin-left: auto;
 }
 #m2-sidebar .m2-list {
   position: relative;
@@ -130,6 +92,8 @@ html[dark] #m2-sidebar .m2-status {
   min-height: 120px;
   overflow-y: auto;
   padding: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--m2-input) transparent;
 }
 #m2-sidebar.m2-floating .m2-list {
   max-height: calc(100vh - 220px);
@@ -149,62 +113,76 @@ html[dark] #m2-sidebar .m2-status {
   max-height: calc(100vh - 560px);
 }
 #m2-sidebar .m2-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 24px;
+  align-items: start;
   gap: 10px;
-  padding: 5px 8px;
-  border-radius: 8px;
+  padding: 4px 6px 4px 8px;
+  border-radius: var(--m2-row-radius);
   cursor: default;
+  transition: background-color 0.12s;
 }
 #m2-sidebar .m2-row:hover {
-  background: rgba(128, 128, 128, 0.15);
+  background: var(--m2-hover);
 }
 #m2-sidebar .m2-row.m2-active {
-  background: rgba(62, 166, 255, 0.15);
+  background: var(--m2-active);
+  color: var(--m2-active-fg);
+  box-shadow: inset var(--m2-active-bar) 0 0 var(--m2-primary);
 }
 #m2-sidebar .m2-time {
-  font: inherit;
-  font-size: 11px;
-  line-height: 24px;
-  color: #3ea6ff;
-  background: none;
-  border: none;
-  cursor: pointer;
+  min-width: 38px;
   padding: 0;
-  min-width: 40px;
+  border: none;
+  background: none;
+  color: var(--m2-muted-fg);
+  font: 400 12px/calc(var(--m2-cue-size) * var(--m2-cue-leading)) var(--m2-font-time);
+  font-variant-numeric: tabular-nums;
   text-align: right;
-  flex: none;
+  cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
 }
+#m2-sidebar .m2-time:hover {
+  color: var(--m2-fg);
+  text-decoration: underline;
+}
+#m2-sidebar .m2-row.m2-active .m2-time {
+  color: var(--m2-time);
+  font-weight: 500;
+}
 #m2-sidebar .m2-text {
-  flex: 1;
-  font-size: 16px;
-  line-height: 1.5;
+  font-family: var(--m2-font-cue);
+  font-size: var(--m2-cue-size);
+  font-weight: var(--m2-cue-weight);
+  line-height: var(--m2-cue-leading);
   white-space: pre-wrap;
   word-break: break-word;
+  text-wrap: pretty;
   color: inherit;
   /* Player containers (Netflix) disable selection; subtitle dragging must opt in. */
   user-select: text;
   -webkit-user-select: text;
 }
 #m2-sidebar .m2-add {
-  flex: none;
-  align-self: center;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
+  margin-top: calc((var(--m2-cue-size) * var(--m2-cue-leading) - 24px) / 2);
   border-radius: 50%;
-  border: none;
-  background: rgba(62, 166, 255, 0.18);
-  color: #3ea6ff;
-  font-size: 17px;
-  line-height: 26px;
-  text-align: center;
-  cursor: pointer;
-  padding: 0;
+  background: var(--m2-primary-soft);
+  color: var(--m2-primary);
   opacity: 0;
-  transition: opacity 0.12s;
+  transition: opacity 0.12s, background-color 0.12s, color 0.12s;
   user-select: none;
   -webkit-user-select: none;
+}
+#m2-sidebar .m2-add .m2-icon {
+  width: 14px;
+  height: 14px;
+}
+#m2-sidebar .m2-add:hover:not(:disabled) {
+  background: var(--m2-primary);
+  color: var(--m2-primary-fg);
 }
 #m2-sidebar .m2-row:hover .m2-add {
   opacity: 1;
@@ -217,27 +195,25 @@ html[dark] #m2-sidebar .m2-status {
   position: fixed;
   z-index: 2147483000;
   transform: translate(-50%, 0);
-  border-radius: 16px;
-  overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   display: none;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--m2-border);
+  border-radius: calc(var(--m2-radius-btn) + 3px);
+  background: var(--m2-bg);
+  color: var(--m2-fg);
+  box-shadow: var(--m2-shadow);
   white-space: nowrap;
+  animation: m2-chip-in 120ms ease-out;
 }
-#m2-sidebar #m2-chip button {
-  background: #3ea6ff;
-  color: #fff;
-  border: none;
-  padding: 6px 12px;
-  font-family: inherit;
+@keyframes m2-chip-in {
+  from { opacity: 0; transform: translate(-50%, -3px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+#m2-sidebar #m2-chip .m2-btn {
+  height: 30px;
+  padding: 0 12px;
   font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-}
-#m2-sidebar #m2-chip button:hover {
-  background: #2d96eb;
-}
-#m2-sidebar #m2-chip button + button {
-  border-left: 1px solid rgba(255, 255, 255, 0.45);
 }
 `;
 
@@ -272,15 +248,16 @@ export class Sidebar {
    * mode 'basic' (Alt+click) creates a standalone Basic card; selText is the
    * text that was selected when the action fired (Front prefill). */
   onMine?: (request: SidebarMineRequest) => void;
-  /** ✨ button: start (or stop, while running) Whisper generation. */
+  /** Waveform button: start (or stop, while running) Whisper generation. */
   onGenerate?: () => void;
-  /** Details of the video playing, for 💡 Explain and 📝 Summary; null ignores the click. */
+  /** Details of the video playing, for Explain and Summary; null ignores the click. */
   videoInfo?: () => VideoInfo | null;
 
   setGenerating(running: boolean): void {
     this.generating = running;
     this.renderSummarizeButton();
-    this.genEl.textContent = running ? '⏹' : '✨';
+    setButtonContent(this.genEl, running ? 'stop' : 'audioLines');
+    this.genEl.classList.toggle('m2-on', running);
     this.genEl.title = running ? 'Stop generating' : 'Generate subtitles with Whisper';
   }
 
@@ -289,8 +266,10 @@ export class Sidebar {
   }
 
   constructor() {
+    ensureUiStyles();
     this.host = document.createElement('div');
     this.host.id = 'm2-sidebar';
+    this.host.className = 'm2-theme';
 
     const style = document.createElement('style');
     style.textContent = CSS;
@@ -302,26 +281,26 @@ export class Sidebar {
     title.className = 'm2-title';
     title.textContent = 'Subtitles';
     this.selectEl = document.createElement('select');
-    this.selectEl.className = 'm2-track-select';
+    this.selectEl.className = 'm2-select m2-track-select';
     this.selectEl.addEventListener('change', () => {
       this.onTrackChange?.(this.selectEl.selectedIndex);
     });
     this.genEl = document.createElement('button');
-    this.genEl.className = 'm2-header-action m2-gen';
-    this.genEl.textContent = '✨';
+    this.genEl.className = 'm2-icon-btn m2-gen';
+    setButtonContent(this.genEl, 'audioLines');
     this.genEl.title = 'Generate subtitles with Whisper';
     this.genEl.ariaLabel = 'Generate subtitles with Whisper';
     this.genEl.addEventListener('click', () => this.onGenerate?.());
     this.copyEl = document.createElement('button');
-    this.copyEl.className = 'm2-header-action m2-copy';
-    this.copyEl.textContent = '📋';
+    this.copyEl.className = 'm2-icon-btn m2-copy';
+    setButtonContent(this.copyEl, 'copy');
     this.copyEl.title = 'No subtitles to copy';
     this.copyEl.ariaLabel = 'Copy all subtitles';
     this.copyEl.disabled = true;
     this.copyEl.addEventListener('click', () => void this.copySubtitles());
     this.summarizeEl = document.createElement('button');
-    this.summarizeEl.className = 'm2-header-action m2-summarize';
-    this.summarizeEl.textContent = '📝';
+    this.summarizeEl.className = 'm2-icon-btn m2-summarize';
+    setButtonContent(this.summarizeEl, 'sparkles');
     this.summarizeEl.ariaLabel = 'Summarize this video';
     this.summarizeEl.addEventListener('click', () => this.toggleSummaryPanel());
     this.renderSummarizeButton();
@@ -335,6 +314,8 @@ export class Sidebar {
     this.listEl.className = 'm2-list';
     this.listEl.addEventListener('mouseenter', () => (this.hovering = true));
     this.listEl.addEventListener('mouseleave', () => (this.hovering = false));
+    // The chip is position: fixed; keep it under the selection as the list scrolls.
+    this.listEl.addEventListener('scroll', () => this.chipSpan && this.updateChip(), { passive: true });
 
     this.captureEditor = new CaptureEditor();
     this.assistantPanel = new AssistantPanel();
@@ -343,18 +324,21 @@ export class Sidebar {
     // position: fixed escapes the host's overflow clipping.
     this.chipEl = document.createElement('div');
     this.chipEl.id = 'm2-chip';
+    this.chipEl.className = 'm2-inverse';
     // Keep the selection alive: a mousedown would collapse it before click.
     this.chipEl.addEventListener('mousedown', (e) => e.preventDefault());
     this.chipAdjustEl = document.createElement('button');
     this.chipAdjustEl.type = 'button';
-    this.chipAdjustEl.textContent = '✂ Adjust & add';
+    this.chipAdjustEl.className = 'm2-btn';
+    setButtonContent(this.chipAdjustEl, 'scissors', 'Adjust & add');
     this.chipAdjustEl.addEventListener('click', (e) => {
       const span = this.takeChipSpan();
       if (span) this.onMine?.({ ...span, mode: e.altKey ? 'basic' : 'update' });
     });
     const chipExplain = document.createElement('button');
     chipExplain.type = 'button';
-    chipExplain.textContent = '💡 Explain';
+    chipExplain.className = 'm2-btn';
+    setButtonContent(chipExplain, 'lightbulb', 'Explain');
     chipExplain.title = 'Explain this in the context of the video';
     chipExplain.addEventListener('click', () => {
       const span = this.takeChipSpan();
@@ -382,7 +366,9 @@ export class Sidebar {
     this.selectEl.replaceChildren(
       ...tracks.map((t) => {
         const opt = document.createElement('option');
-        opt.textContent = t.kind === 'asr' ? `${t.label} (auto)` : t.label;
+        // "Japanese (auto-generated)" → "Japanese (auto)": fits the header.
+        const label = t.label.replace(/\s*\(auto-generated\)/i, '');
+        opt.textContent = t.kind === 'asr' ? `${label} (auto)` : label;
         return opt;
       }),
     );
@@ -426,8 +412,8 @@ export class Sidebar {
       });
 
       const add = document.createElement('button');
-      add.className = 'm2-add';
-      add.textContent = '＋';
+      add.className = 'm2-icon-btn m2-add';
+      add.append(icon('plus'));
       add.title = 'Add audio + screenshot to the last mined Anki card\nAlt+click: new Basic card';
       add.addEventListener('click', (e) => {
         const selText = window.getSelection()?.toString().trim() ?? '';
@@ -451,10 +437,14 @@ export class Sidebar {
     this.statusEl.hidden = message === null;
     this.statusEl.replaceChildren();
     if (message === null) return;
+    if (message.endsWith('…')) this.statusEl.append(icon('loader', 'm2-spin'));
+    else if (withRetry) this.statusEl.append(icon('circleAlert'));
     this.statusEl.append(message);
     if (withRetry) {
       const retry = document.createElement('button');
-      retry.textContent = 'Retry';
+      retry.type = 'button';
+      retry.className = 'm2-btn m2-outline';
+      setButtonContent(retry, 'rotate', 'Retry');
       retry.addEventListener('click', () => this.onRetry?.());
       this.statusEl.append(retry);
     }
@@ -495,7 +485,7 @@ export class Sidebar {
       if (!row) continue;
       row.classList.toggle('m2-busy', busy);
       const add = row.querySelector<HTMLButtonElement>('.m2-add');
-      if (add) add.textContent = busy ? '…' : '＋';
+      if (add) setButtonContent(add, busy ? 'loader' : 'plus');
     }
   }
 
@@ -514,8 +504,9 @@ export class Sidebar {
     const context = info ? explainContextFromCues(this.cues, selection, info) : null;
     if (!context) return;
     const count = context.to - context.from + 1;
-    this.openAssistantPanel('explain', {
-      title: '💡 Explain',
+    this.openAssistantPanel('explain', context.from, {
+      title: 'Explain',
+      icon: 'lightbulb',
       meta: count === 1 ? '1 selected line' : `${count} selected lines`,
       quote: context.selectedText,
       ask: { label: 'Explain', placeholder: 'What would you like explained? (optional)' },
@@ -523,7 +514,7 @@ export class Sidebar {
     });
   }
 
-  /** 📝: open the summary (asking first when the transcript is over budget),
+  /** Sparkle button: open the summary (asking first when the transcript is over budget),
    * or close it when it is already showing. */
   private toggleSummaryPanel(): void {
     if (this.assistantKind === 'summary') {
@@ -546,8 +537,9 @@ export class Sidebar {
       this.openSummary(info, state);
     };
     const cutAt = formatClock(state.cues[Math.max(0, size.fitCount - 1)]!.end);
-    this.openAssistantPanel('summary', {
-      title: '📝 Summary',
+    this.openAssistantPanel('summary', this.activeIndex, {
+      title: 'Summary',
+      icon: 'sparkles',
       choice: {
         message:
           `This transcript is long: about ${thousands(size.chars)} characters ` +
@@ -565,8 +557,9 @@ export class Sidebar {
   private openSummary(info: VideoInfo, state: SummaryState): void {
     const context = summaryContextFromCues(state.cues, info, state.cut === true);
     const end = formatClock(state.cues[state.cues.length - 1]!.end);
-    this.openAssistantPanel('summary', {
-      title: '📝 Summary',
+    this.openAssistantPanel('summary', this.activeIndex, {
+      title: 'Summary',
+      icon: 'sparkles',
       meta: context.cutAtMs === null ? 'whole video' : '',
       notice:
         context.cutAtMs === null
@@ -584,12 +577,15 @@ export class Sidebar {
     });
   }
 
+  /** focusRow: the cue to keep in view above the panel (the list shrinks). */
   private openAssistantPanel(
     kind: 'explain' | 'summary',
+    focusRow: number,
     options: Omit<AssistantPanelOptions, 'onClose'>,
   ): void {
     this.cancelCaptureEditor();
     this.host.classList.add('m2-assisting');
+    if (focusRow >= 0) this.centerRow(focusRow, 'instant');
     this.assistantKind = kind;
     this.assistantPanel.open({
       ...options,
@@ -620,6 +616,7 @@ export class Sidebar {
   showCaptureEditor(options: CaptureEditorOptions): void {
     this.closeAssistantPanel();
     this.host.classList.add('m2-editing');
+    if (this.activeIndex >= 0) this.centerRow(this.activeIndex, 'instant');
     this.captureEditor.open({
       ...options,
       onConfirm: async (draft) => {
@@ -643,12 +640,12 @@ export class Sidebar {
     if (this.captureEditor.isOpen) this.captureEditor.cancel();
   }
 
-  private centerRow(i: number): void {
+  private centerRow(i: number, behavior: ScrollBehavior = 'smooth'): void {
     const row = this.rows[i];
     if (!row) return;
     // offsetTop is relative to .m2-list (position: relative).
     const top = row.offsetTop - this.listEl.clientHeight / 2 + row.offsetHeight / 2;
-    this.listEl.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    this.listEl.scrollTo({ top: Math.max(0, top), behavior });
   }
 
   private async copySubtitles(): Promise<void> {
@@ -661,10 +658,8 @@ export class Sidebar {
     try {
       await writeClipboard(text);
       window.clearTimeout(this.copyResetTimeout);
-      this.copyEl.textContent = '✓';
-      this.copyResetTimeout = window.setTimeout(() => {
-        this.copyEl.textContent = '📋';
-      }, 1500);
+      setButtonContent(this.copyEl, 'check');
+      this.copyResetTimeout = window.setTimeout(() => setButtonContent(this.copyEl, 'copy'), 1500);
       showToast(`Copied ${this.cues.length} subtitle lines`);
     } catch {
       showToast('Could not copy subtitles to the clipboard.', 'error');

@@ -22,40 +22,14 @@ import { getSettings, onSettingsChanged } from '../lib/settings';
 import type { M2Settings } from '../lib/settings';
 import { Sidebar } from '../lib/sidebar';
 import type { SidebarMineRequest } from '../lib/sidebar';
+import { NF_CSS, SIDEBAR_WIDTH_PX } from '../lib/sidebar-netflix';
 import { showToast } from '../lib/toast';
 
 const STORAGE_SIDEBAR_VISIBLE = 'sidebarVisible';
 const STORAGE_OVERLAY_VISIBLE = 'overlayVisible';
 const MOUNT_CHECK_INTERVAL_MS = 1000;
 const TICK_MS = 250;
-const SIDEBAR_WIDTH_PX = 400;
 
-// Netflix is always dark and the sidebar is a full-height right panel that
-// reclaims space from the player (.watch-video--player-view is responsive
-// and relayouts when narrowed — the Language Reactor / Jelly-Party recipe).
-const NF_CSS = `
-#m2-sidebar.m2-nf {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: ${SIDEBAR_WIDTH_PX}px;
-  height: 100%;
-  margin: 0;
-  border-radius: 0;
-  background: #141414;
-  color: #f1f1f1;
-  display: flex;
-  flex-direction: column;
-  z-index: 20;
-}
-#m2-sidebar.m2-nf .m2-list {
-  max-height: none;
-  flex: 1;
-}
-#m2-sidebar.m2-nf .m2-status {
-  color: #aaa;
-}
-`;
 // Netflix centers the <video> (left/top 50% + translate -50%) and sizes it
 // with an inline pixel width computed from the window, which it doesn't
 // recompute when we narrow the player — the video then overflows and gets
@@ -77,7 +51,7 @@ export default defineContentScript({
   async main() {
     console.debug('[m2:nf] isolated script loaded', location.href);
     const sidebar = new Sidebar();
-    sidebar.host.classList.add('m2-nf');
+    sidebar.host.classList.add('m2-nf', 'm2-dark');
     const nfStyle = document.createElement('style');
     nfStyle.textContent = NF_CSS;
     sidebar.host.append(nfStyle);
@@ -158,7 +132,7 @@ export default defineContentScript({
     function displayTracks() {
       const tracks = [...(payload?.tracks ?? [])];
       if (genAvailable()) {
-        tracks.push({ url: '', languageCode: '', kind: '' as const, label: '✨ Whisper (generated)' });
+        tracks.push({ url: '', languageCode: '', kind: '' as const, label: 'Whisper (generated)' });
       }
       return tracks;
     }
@@ -305,7 +279,7 @@ export default defineContentScript({
         refreshTrackSelect();
         sidebar.setCues([]);
         sidebar.setStatus(
-          'Waiting for Netflix subtitle manifest… (reload the page if this persists, or click ✨ to generate with Whisper)',
+          'Waiting for Netflix subtitle manifest… (reload the page if this persists, or click the waveform button to generate with Whisper)',
         );
         return;
       }

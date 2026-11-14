@@ -84,7 +84,7 @@ export async function captureNetflixSpan(
 }
 
 // Netflix chrome that must not appear in card screenshots: its own subtitle
-// renders, the control bar, back/flag buttons — plus our overlay.
+// renders, the control bar, back/flag buttons — plus our overlay and toast.
 const SHOT_HIDE_CSS = `
 .player-timedtext,
 .image-based-subtitles,
@@ -92,7 +92,8 @@ const SHOT_HIDE_CSS = `
 .watch-video--back-container,
 .watch-video--flag-container,
 [data-uia="player-controls-wrapper"],
-#m2-overlay {
+#m2-overlay,
+.m2-toast {
   visibility: hidden !important;
 }
 `;

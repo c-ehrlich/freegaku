@@ -105,7 +105,7 @@ export default defineContentScript({
     function displayTracks() {
       const tracks = [...(payload?.tracks ?? [])];
       if (genAvailable()) {
-        tracks.push({ url: '', languageCode: '', kind: '' as const, label: '✨ Whisper (generated)' });
+        tracks.push({ url: '', languageCode: '', kind: '' as const, label: 'Whisper (generated)' });
       }
       return tracks;
     }
@@ -285,7 +285,7 @@ export default defineContentScript({
         sidebar.setCues([]);
         sidebar.setStatus(
           p.source === 'none'
-            ? 'No subtitles found — click ✨ to generate with Whisper.'
+            ? 'No subtitles found — click the waveform button to generate with Whisper.'
             : 'No subtitle tracks.',
           true,
         );

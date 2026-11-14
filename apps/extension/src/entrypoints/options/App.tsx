@@ -1,4 +1,34 @@
-import { useEffect, useRef, useState } from 'react';
+import {
+  ArrowRight,
+  AudioLines,
+  Camera,
+  CircleAlert,
+  Keyboard,
+  Layers,
+  Loader2,
+  Plus,
+  Sparkles,
+  Trash2,
+  Workflow,
+  Zap,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { Fragment, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import { formatCost } from '../../lib/assistant';
 import { checkKey } from '../../lib/openrouter';
 import { DEFAULT_MODEL, DEFAULT_SETTINGS } from '../../lib/settings';
@@ -17,6 +47,29 @@ const SECTIONS = [
 ] as const;
 type Section = (typeof SECTIONS)[number];
 
+const SECTION_ICONS: Record<Section, LucideIcon> = {
+  Anki: Layers,
+  'Card mapping': Workflow,
+  'Quick cards': Zap,
+  Whisper: AudioLines,
+  AI: Sparkles,
+  Hotkeys: Keyboard,
+  Capture: Camera,
+};
+
+const LEDES: Record<Section, string> = {
+  Anki: 'Connection to AnkiConnect (the Anki add-on, code 2055492159).',
+  'Card mapping':
+    'The ＋ button updates the newest note of one of these note types (mine the word with Yomitan first). Per note type, choose which Anki field receives each piece of captured content. Unmapped content is not written.',
+  'Quick cards':
+    'Alt+click a ＋ (or the selection chip) to create a standalone card without Yomitan — for the occasional English line. Front = the text you type in the prompt; Back = sentence, audio, screenshot and origin.',
+  Whisper:
+    'The waveform button in the sidebar header generates subtitles for videos that have none: audio is captured from playback in 30-second chunks and transcribed progressively via the local transcription worker. Generated tracks are cached per video.',
+  AI: "Select subtitle text and click Explain to ask why it's said the way it is. The model sees the video details and the transcript up to shortly after your selection (so it can't spoil what comes later). Click the sparkle button in the sidebar header for a short summary of the whole video, written in the subtitles' language. Requests go straight to OpenRouter with your key.",
+  Hotkeys: 'Toggles work on both YouTube and Netflix.',
+  Capture: 'Audio clip padding and screenshot quality.',
+};
+
 const CONTENT_LABELS: Record<MineContent, string> = {
   word: 'Card word (check)',
   sentenceAudio: 'Sentence audio',
@@ -25,6 +78,9 @@ const CONTENT_LABELS: Record<MineContent, string> = {
   origin: 'Origin',
 };
 const CONTENT_ORDER: MineContent[] = ['word', 'sentenceAudio', 'image', 'sentence', 'origin'];
+
+/** Radix Select can't hold '' — stands in for "no field". */
+const NONE = '__none__';
 
 export function App() {
   const { settings, update, savedTick } = useSettings();
@@ -42,35 +98,69 @@ export function App() {
   if (!settings) return null;
 
   return (
-    <div className="app">
-      <aside className="side">
-        <div className="brand">
-          Freegaku
-          <small>settings</small>
+    <div className="mx-auto grid max-w-[1040px] grid-cols-[200px_minmax(0,1fr)] gap-12 px-6 pt-10 pb-20">
+      <aside className="sticky top-10 self-start">
+        <div className="flex items-center gap-2.5 px-2.5">
+          <div className="grid size-7 place-items-center rounded-md bg-primary text-[13px] font-bold text-primary-foreground">
+            F
+          </div>
+          <div className="leading-tight">
+            <div className="text-sm font-semibold">Freegaku</div>
+            <div className="text-xs text-muted-foreground">Settings</div>
+          </div>
         </div>
-        <nav>
-          {SECTIONS.map((s) => (
-            <button key={s} className={s === section ? 'active' : ''} onClick={() => setSection(s)}>
-              {s}
-            </button>
-          ))}
+        <nav className="mt-6 flex flex-col gap-0.5">
+          {SECTIONS.map((s) => {
+            const Icon = SECTION_ICONS[s];
+            const active = s === section;
+            return (
+              <button
+                key={s}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'flex h-8 cursor-pointer items-center gap-2.5 rounded-[var(--m2-row-radius)] px-2.5 text-left text-[13px] font-medium transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring',
+                  active
+                    ? 'bg-active text-[color:var(--m2-active-fg)] [box-shadow:inset_var(--m2-active-bar)_0_0_var(--m2-primary)]'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                )}
+                onClick={() => setSection(s)}
+              >
+                <Icon className={cn('size-4', active && 'text-primary')} aria-hidden />
+                {s}
+              </button>
+            );
+          })}
         </nav>
-        <div className="save-state" style={{ opacity: savedVisible ? 1 : 0 }}>
-          Saved ✓
-        </div>
       </aside>
-      <main className="content">
-        {section === 'Anki' && <AnkiSection settings={settings} update={update} anki={anki} />}
-        {section === 'Card mapping' && (
-          <MappingSection settings={settings} update={update} anki={anki} />
-        )}
-        {section === 'Quick cards' && (
-          <QuickCardsSection settings={settings} update={update} anki={anki} />
-        )}
-        {section === 'Whisper' && <WhisperSection settings={settings} update={update} />}
-        {section === 'AI' && <AiSection settings={settings} update={update} />}
-        {section === 'Hotkeys' && <HotkeysSection settings={settings} update={update} />}
-        {section === 'Capture' && <CaptureSection settings={settings} update={update} />}
+      <main className="max-w-[740px] min-w-0">
+        <header className="mb-6">
+          <div className="flex items-center justify-between gap-4">
+            <h1 className="text-[22px] font-semibold tracking-tight">{section}</h1>
+            <span
+              aria-live="polite"
+              className="text-xs font-medium text-success transition-opacity duration-400"
+              style={{ opacity: savedVisible ? 1 : 0 }}
+            >
+              Saved ✓
+            </span>
+          </div>
+          <p className="mt-1.5 max-w-[64ch] text-sm leading-relaxed text-muted-foreground">
+            {LEDES[section]}
+          </p>
+        </header>
+        <div className="flex flex-col gap-4">
+          {section === 'Anki' && <AnkiSection settings={settings} update={update} anki={anki} />}
+          {section === 'Card mapping' && (
+            <MappingSection settings={settings} update={update} anki={anki} />
+          )}
+          {section === 'Quick cards' && (
+            <QuickCardsSection settings={settings} update={update} anki={anki} />
+          )}
+          {section === 'Whisper' && <WhisperSection settings={settings} update={update} />}
+          {section === 'AI' && <AiSection settings={settings} update={update} />}
+          {section === 'Hotkeys' && <HotkeysSection settings={settings} update={update} />}
+          {section === 'Capture' && <CaptureSection settings={settings} update={update} />}
+        </div>
       </main>
     </div>
   );
@@ -79,6 +169,74 @@ export function App() {
 interface SectionProps {
   settings: M2Settings;
   update: (patch: Partial<M2Settings>) => void;
+}
+
+/** A card of settings rows, optionally titled. */
+function Group({ title, children }: { title?: string; children: ReactNode }) {
+  return (
+    <Card>
+      {title && (
+        <CardHeader>
+          <CardTitle className="m2-label text-muted-foreground">{title}</CardTitle>
+        </CardHeader>
+      )}
+      <CardContent className="divide-y divide-border px-0">{children}</CardContent>
+    </Card>
+  );
+}
+
+/** Label and description on the left, control on the right. */
+function Row({
+  label,
+  htmlFor,
+  description,
+  children,
+}: {
+  label: string;
+  htmlFor?: string;
+  description?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-8 px-5 py-4">
+      <div className="min-w-0 flex-1">
+        {htmlFor ? (
+          <Label htmlFor={htmlFor}>{label}</Label>
+        ) : (
+          <div className="text-sm leading-none font-medium">{label}</div>
+        )}
+        {description && (
+          <div className="mt-1.5 text-[13px] leading-snug text-muted-foreground">{description}</div>
+        )}
+      </div>
+      <div className="flex max-w-[60%] shrink-0 flex-col items-end gap-1.5">{children}</div>
+    </div>
+  );
+}
+
+type Tone = 'muted' | 'success' | 'warn' | 'error';
+const TONE_TEXT: Record<Tone, string> = {
+  muted: '',
+  success: 'text-success',
+  warn: 'text-warn',
+  error: 'text-destructive',
+};
+
+function FieldError({ children }: { children: ReactNode }) {
+  return <p className="text-xs text-destructive">{children}</p>;
+}
+
+function Kbd({ keys }: { keys: string[] }) {
+  return (
+    <span className="flex h-8 items-center gap-2">
+      {keys.map((k, i) => (
+        <Fragment key={k}>
+          {i > 0 && <span className="text-xs text-muted-foreground">+</span>}
+          <kbd className="m2-kbd">{k}</kbd>
+        </Fragment>
+      ))}
+    </span>
+  );
 }
 
 /** Draft-state number input: type freely, errors shown inline, only valid
@@ -126,13 +284,13 @@ function NumberField({
   };
 
   return (
-    <span className="field">
-      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <input
+    <>
+      <span className="flex items-center gap-2">
+        <Input
           id={id}
           type="number"
           step={step}
-          className={error ? 'invalid' : ''}
+          className="w-24 tabular-nums"
           aria-invalid={error !== null}
           value={draft}
           onFocus={() => (editing.current = true)}
@@ -146,10 +304,10 @@ function NumberField({
           }}
           onChange={(e) => handle(e.target.value)}
         />
-        {unit && <span className="hint">{unit}</span>}
+        {unit && <span className="w-5 text-[13px] text-muted-foreground">{unit}</span>}
       </span>
-      {error && <span className="field-error">{error}</span>}
-    </span>
+      {error && <FieldError>{error}</FieldError>}
+    </>
   );
 }
 
@@ -195,11 +353,11 @@ function UrlField({
   };
 
   return (
-    <span className="field" style={{ flex: 1 }}>
-      <input
+    <>
+      <Input
         id={id}
         type="text"
-        className={error ? 'invalid' : ''}
+        className="w-64 font-mono text-xs"
         aria-invalid={error !== null}
         value={draft}
         onFocus={() => (editing.current = true)}
@@ -212,13 +370,21 @@ function UrlField({
           if (e.key === 'Enter') commit();
         }}
       />
-      {error && <span className="field-error">{error}</span>}
-    </span>
+      {error && <FieldError>{error}</FieldError>}
+    </>
   );
 }
 
 /** Single-letter hotkey input with the same draft/error behavior. */
-function KeyField({ value, onCommit }: { value: string; onCommit: (v: string) => void }) {
+function KeyField({
+  id,
+  value,
+  onCommit,
+}: {
+  id: string;
+  value: string;
+  onCommit: (v: string) => void;
+}) {
   const [draft, setDraft] = useState(value);
   const [error, setError] = useState<string | null>(null);
   const editing = useRef(false);
@@ -229,13 +395,16 @@ function KeyField({ value, onCommit }: { value: string; onCommit: (v: string) =>
     }
   }, [value]);
   return (
-    <span className="field">
-      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span className="kbd-prefix">Alt +</span>
-        <input
-          className={`key ${error ? 'invalid' : ''}`}
+    <>
+      <span className="flex items-center gap-2">
+        <kbd className="m2-kbd">Alt</kbd>
+        <span className="text-xs text-muted-foreground">+</span>
+        <Input
+          id={id}
+          className="h-7 w-9 px-0 text-center text-xs font-semibold"
           type="text"
           maxLength={1}
+          aria-invalid={error !== null}
           value={draft}
           onFocus={() => (editing.current = true)}
           onBlur={() => {
@@ -255,56 +424,75 @@ function KeyField({ value, onCommit }: { value: string; onCommit: (v: string) =>
           }}
         />
       </span>
-      {error && <span className="field-error">{error}</span>}
-    </span>
+      {error && <FieldError>{error}</FieldError>}
+    </>
   );
 }
 
 function ConnectionBanner({ anki }: { anki: AnkiData }) {
   if (anki.status !== 'error') return null;
   return (
-    <div className="banner">
-      Can’t reach Anki — open Anki with the AnkiConnect add-on, then retry.
-      <button className="btn" onClick={anki.refresh}>
-        Retry
-      </button>
-    </div>
+    <Alert variant="destructive">
+      <CircleAlert />
+      <AlertTitle>Can’t reach Anki</AlertTitle>
+      <AlertDescription>Open Anki with the AnkiConnect add-on, then retry.</AlertDescription>
+      <AlertAction>
+        <Button variant="outline" size="sm" onClick={anki.refresh}>
+          Retry
+        </Button>
+      </AlertAction>
+    </Alert>
+  );
+}
+
+function AnkiStatusBadge({ anki }: { anki: AnkiData }) {
+  if (anki.status === 'connecting') {
+    return (
+      <Badge variant="warn">
+        <Loader2 className="animate-spin" />
+        Connecting…
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant={anki.status === 'connected' ? 'success' : 'destructive'}>
+      <span className="size-1.5 rounded-full bg-current" />
+      {anki.status === 'connected' ? `Connected · AnkiConnect v${anki.version}` : 'Not reachable'}
+    </Badge>
   );
 }
 
 function AnkiSection({ settings, update, anki }: SectionProps & { anki: AnkiData }) {
   return (
     <>
-      <h1>Anki</h1>
-      <p className="lede">Connection to AnkiConnect (the Anki add-on, code 2055492159).</p>
-      <div className="panel">
-        <div className="row">
-          <label htmlFor="ankiUrl">AnkiConnect URL</label>
+      <ConnectionBanner anki={anki} />
+      <Group>
+        <Row label="AnkiConnect URL" htmlFor="ankiUrl" description="Where the add-on listens.">
           <UrlField
             id="ankiUrl"
             value={settings.ankiUrl}
             defaultValue={DEFAULT_SETTINGS.ankiUrl}
             onCommit={(ankiUrl) => update({ ankiUrl })}
           />
-        </div>
-        <div className="row">
-          <label>Status</label>
-          <span className={`pill ${anki.status}`}>
-            {anki.status === 'connected' && `Connected · AnkiConnect v${anki.version}`}
-            {anki.status === 'connecting' && 'Connecting…'}
-            {anki.status === 'error' && 'Not reachable'}
+        </Row>
+        <Row
+          label="Status"
+          description={
+            anki.status === 'connected' ? (
+              `${anki.decks.length} decks · ${anki.models.length} note types`
+            ) : anki.status === 'error' && anki.error ? (
+              <span className="text-destructive">{anki.error}</span>
+            ) : undefined
+          }
+        >
+          <span className="flex h-8 items-center gap-3">
+            <AnkiStatusBadge anki={anki} />
+            <Button variant="outline" onClick={anki.refresh}>
+              Test
+            </Button>
           </span>
-          <button className="btn" onClick={anki.refresh}>
-            Test
-          </button>
-        </div>
-        {anki.status === 'connected' && (
-          <div className="row-hint">
-            {anki.decks.length} decks · {anki.models.length} note types
-          </div>
-        )}
-        {anki.status === 'error' && anki.error && <div className="row-hint">{anki.error}</div>}
-      </div>
+        </Row>
+      </Group>
     </>
   );
 }
@@ -327,19 +515,16 @@ function MappingSection({ settings, update, anki }: SectionProps & { anki: AnkiD
     update({
       mappings: [
         ...settings.mappings,
-        { model, fields: { word: 'Word', sentenceAudio: null, image: null, sentence: null, origin: null } },
+        {
+          model,
+          fields: { word: 'Word', sentenceAudio: null, image: null, sentence: null, origin: null },
+        },
       ],
     });
   };
 
   return (
     <>
-      <h1>Card mapping</h1>
-      <p className="lede">
-        The ＋ button updates the newest note of one of these note types (mine the word with
-        Yomitan first). Per note type, choose which Anki field receives each piece of captured
-        content. Unmapped content is not written.
-      </p>
       <ConnectionBanner anki={anki} />
       {settings.mappings.map((mapping, i) => (
         <MappingCard
@@ -350,9 +535,12 @@ function MappingSection({ settings, update, anki }: SectionProps & { anki: AnkiD
           onRemove={settings.mappings.length > 1 ? () => removeMapping(i) : undefined}
         />
       ))}
-      <button className="btn" onClick={addMapping} disabled={anki.status !== 'connected'}>
-        ＋ Add note type
-      </button>
+      <div>
+        <Button variant="outline" onClick={addMapping} disabled={anki.status !== 'connected'}>
+          <Plus />
+          Add note type
+        </Button>
+      </div>
     </>
   );
 }
@@ -405,74 +593,107 @@ function MappingCard({
   const verified = anki.status === 'connected';
 
   return (
-    <div className="mapping">
-      <div className="mapping-head">
+    <Card>
+      <CardHeader className="py-2.5">
         <ModelSelect
+          className="w-72 font-medium"
           value={mapping.model}
           models={anki.models}
           verified={verified}
           onChange={(model) => {
             anki.ensureFields(model);
-            onChange({ ...mapping, model, fields: remapFields(mapping.fields, anki.modelFields[model]) });
+            onChange({
+              ...mapping,
+              model,
+              fields: remapFields(mapping.fields, anki.modelFields[model]),
+            });
           }}
         />
         {verified && mapping.model && !anki.models.includes(mapping.model) && (
-          <span className="badge">note type not found in Anki</span>
+          <Badge variant="warn">note type not found in Anki</Badge>
         )}
         {onRemove && (
-          <button className="btn subtle" title="Remove this note type" onClick={onRemove}>
-            Remove
-          </button>
+          <CardAction>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground hover:text-destructive"
+              title="Remove this note type"
+              onClick={onRemove}
+            >
+              <Trash2 />
+              Remove
+            </Button>
+          </CardAction>
         )}
-      </div>
-      {CONTENT_ORDER.map((content) => {
-        const value = mapping.fields[content];
-        const missing = value !== null && verified && fields !== undefined && !fields.includes(value);
-        return (
-          <div className="map-row" key={content}>
-            <span>{CONTENT_LABELS[content]}</span>
-            <span className="arrow">→</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <select
-                value={value ?? ''}
-                onChange={(e) =>
+      </CardHeader>
+      <CardContent className="px-0 py-2">
+        {CONTENT_ORDER.map((content) => {
+          const value = mapping.fields[content];
+          const missing =
+            value !== null && verified && fields !== undefined && !fields.includes(value);
+          return (
+            <div
+              className="grid grid-cols-[minmax(0,1fr)_auto_13rem] items-center gap-4 px-5 py-1.5"
+              key={content}
+            >
+              <span className="flex min-w-0 items-center gap-2 text-sm">
+                {CONTENT_LABELS[content]}
+                {missing && <Badge variant="warn">field missing on this note type</Badge>}
+              </span>
+              <ArrowRight className="size-3.5 text-muted-foreground" aria-hidden />
+              <Select
+                value={value ?? NONE}
+                onValueChange={(v) =>
                   onChange({
                     ...mapping,
-                    fields: { ...mapping.fields, [content]: e.target.value || null },
+                    fields: { ...mapping.fields, [content]: v === NONE ? null : v },
                   })
                 }
               >
-                <option value="">
-                  {content === 'word' ? '— not configured' : '— don’t write'}
-                </option>
-                {/* Saved value stays selectable even when Anki is offline. */}
-                {value && !(fields ?? []).includes(value) && (
-                  <option className={missing ? 'missing' : ''} value={value}>
-                    {value}
-                    {missing ? ' (missing)' : ''}
-                  </option>
-                )}
-                {(fields ?? []).map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </select>
-              {missing && <span className="badge">field missing on this note type</span>}
-            </span>
-          </div>
-        );
-      })}
-    </div>
+                <SelectTrigger
+                  aria-label={CONTENT_LABELS[content]}
+                  aria-invalid={missing}
+                  className={cn('w-full', value === null && 'text-muted-foreground')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE} className="text-muted-foreground">
+                    {content === 'word' ? '— not configured' : '— don’t write'}
+                  </SelectItem>
+                  {/* Saved value stays selectable even when Anki is offline. */}
+                  {value && !(fields ?? []).includes(value) && (
+                    <SelectItem className={missing ? 'text-destructive' : ''} value={value}>
+                      {value}
+                      {missing ? ' (missing)' : ''}
+                    </SelectItem>
+                  )}
+                  {(fields ?? []).map((f) => (
+                    <SelectItem key={f} value={f}>
+                      {f}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
   );
 }
 
 function ModelSelect({
+  id,
+  className,
   value,
   models,
   verified,
   onChange,
 }: {
+  id?: string;
+  className?: string;
   value: string;
   models: string[];
   verified: boolean;
@@ -480,20 +701,24 @@ function ModelSelect({
 }) {
   const known = models.includes(value);
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)}>
-      {!known && value && (
-        <option value={value}>
-          {value}
-          {verified ? ' (missing)' : ''}
-        </option>
-      )}
-      {!value && <option value="">— choose a note type</option>}
-      {models.map((m) => (
-        <option key={m} value={m}>
-          {m}
-        </option>
-      ))}
-    </select>
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger id={id} className={className}>
+        <SelectValue placeholder="— choose a note type" />
+      </SelectTrigger>
+      <SelectContent>
+        {!known && value && (
+          <SelectItem value={value}>
+            {value}
+            {verified ? ' (missing)' : ''}
+          </SelectItem>
+        )}
+        {models.map((m) => (
+          <SelectItem key={m} value={m}>
+            {m}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -506,164 +731,166 @@ function QuickCardsSection({ settings, update, anki }: SectionProps & { anki: An
 
   return (
     <>
-      <h1>Quick cards</h1>
-      <p className="lede">
-        Alt+click a ＋ (or the selection chip) to create a standalone card without Yomitan — for
-        the occasional English line. Front = the text you type in the prompt; Back = sentence,
-        audio, screenshot and origin.
-      </p>
       <ConnectionBanner anki={anki} />
-      <div className="panel">
-        <div className="row">
-          <label htmlFor="basicDeck">Deck</label>
-          <select
-            id="basicDeck"
-            value={settings.basicDeck}
-            onChange={(e) => update({ basicDeck: e.target.value })}
-          >
-            {!anki.decks.includes(settings.basicDeck) && (
-              <option value={settings.basicDeck}>
-                {settings.basicDeck}
-                {verified ? ' (missing)' : ''}
-              </option>
-            )}
-            {anki.decks.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="row">
-          <label htmlFor="basicModel">Note type</label>
+      <Group>
+        <Row label="Deck" htmlFor="basicDeck" description="Where quick cards are added.">
+          <Select value={settings.basicDeck} onValueChange={(basicDeck) => update({ basicDeck })}>
+            <SelectTrigger id="basicDeck" className="w-64">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {!anki.decks.includes(settings.basicDeck) && (
+                <SelectItem value={settings.basicDeck}>
+                  {settings.basicDeck}
+                  {verified ? ' (missing)' : ''}
+                </SelectItem>
+              )}
+              {anki.decks.map((d) => (
+                <SelectItem key={d} value={d}>
+                  {d}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Row>
+        <Row label="Note type" htmlFor="basicModel" description="Must have Front and Back fields.">
           <ModelSelect
+            id="basicModel"
+            className="w-64"
             value={settings.basicModel}
             models={anki.models}
             verified={verified}
             onChange={(basicModel) => update({ basicModel })}
           />
-          {missingFrontBack && <span className="badge">needs Front and Back fields</span>}
-        </div>
-      </div>
+          {missingFrontBack && <Badge variant="warn">needs Front and Back fields</Badge>}
+        </Row>
+      </Group>
     </>
   );
 }
 
 function WhisperSection({ settings, update }: SectionProps) {
-  const [health, setHealth] = useState<string | null>(null);
+  const [health, setHealth] = useState<{ text: string; tone: Tone } | null>(null);
   const testWorker = async (): Promise<void> => {
     try {
       const res = await fetch(new URL('/health', settings.workerUrl));
       const data = (await res.json()) as { ok: boolean; mock: boolean; hasKey: boolean };
       setHealth(
         data.mock
-          ? 'Reachable · MOCK mode (no real transcription)'
+          ? { text: 'Reachable · MOCK mode (no real transcription)', tone: 'warn' }
           : data.hasKey
-            ? 'Reachable · API key configured ✓'
-            : 'Reachable, but no OPENAI_API_KEY — add it to apps/worker/.dev.vars',
+            ? { text: 'Reachable · API key configured ✓', tone: 'success' }
+            : {
+                text: 'Reachable, but no OPENAI_API_KEY — add it to apps/worker/.dev.vars',
+                tone: 'warn',
+              },
       );
     } catch {
-      setHealth('Not reachable — run `pnpm --filter @migaku2/worker dev`');
+      setHealth({ text: 'Not reachable — run `pnpm --filter @migaku2/worker dev`', tone: 'error' });
     }
   };
   return (
-    <>
-      <h1>Whisper</h1>
-      <p className="lede">
-        The ✨ button in the sidebar generates subtitles for videos that have none: audio is
-        captured from playback in 30-second chunks and transcribed progressively via the local
-        transcription worker. Generated tracks are cached per video.
-      </p>
-      <div className="panel">
-        <div className="row">
-          <label htmlFor="workerUrl">Worker URL</label>
-          <UrlField
-            id="workerUrl"
-            value={settings.workerUrl}
-            defaultValue={DEFAULT_SETTINGS.workerUrl}
-            onCommit={(workerUrl) => update({ workerUrl })}
-          />
-        </div>
-        <div className="row">
-          <label>Status</label>
-          <button className="btn" onClick={() => void testWorker()}>
-            Test
-          </button>
-          {health && <span className="hint">{health}</span>}
-        </div>
-        <div className="row">
-          <label htmlFor="workerToken">Worker token</label>
-          <input
-            id="workerToken"
-            type="password"
-            style={{ width: 260 }}
-            value={settings.workerToken}
-            onChange={(e) => update({ workerToken: e.target.value.trim() })}
-          />
-          <span className="hint">empty for a local worker; required once deployed</span>
-        </div>
-        <div className="row">
-          <label htmlFor="whisperLang">Language hint</label>
-          <input
-            id="whisperLang"
-            type="text"
-            maxLength={2}
-            style={{ width: 64, textAlign: 'center' }}
-            value={settings.whisperLang}
-            onChange={(e) => {
-              const v = e.target.value.toLowerCase().replace(/[^a-z]/g, '');
-              if (v.length === 0 || v.length === 2) update({ whisperLang: v });
-            }}
-          />
-          <span className="hint">ISO-639-1 (e.g. ja); empty = auto-detect</span>
-        </div>
-        <div className="row">
-          <label htmlFor="generateRate">Generation speed</label>
-          <NumberField
-            id="generateRate"
-            value={settings.generateRate}
-            min={1}
-            max={3}
-            step={0.25}
-            unit="× (YouTube only; video is muted while >1×. Netflix always 1×.)"
-            onCommit={(generateRate) => update({ generateRate })}
-          />
-        </div>
-      </div>
-    </>
+    <Group>
+      <Row label="Worker URL" htmlFor="workerUrl" description="The transcription worker.">
+        <UrlField
+          id="workerUrl"
+          value={settings.workerUrl}
+          defaultValue={DEFAULT_SETTINGS.workerUrl}
+          onCommit={(workerUrl) => update({ workerUrl })}
+        />
+      </Row>
+      <Row
+        label="Status"
+        description={
+          health ? (
+            <span className={TONE_TEXT[health.tone]}>{health.text}</span>
+          ) : (
+            'Checks the worker’s /health endpoint.'
+          )
+        }
+      >
+        <Button variant="outline" onClick={() => void testWorker()}>
+          Test
+        </Button>
+      </Row>
+      <Row
+        label="Worker token"
+        htmlFor="workerToken"
+        description="Empty for a local worker; required once deployed."
+      >
+        <Input
+          id="workerToken"
+          type="password"
+          className="w-64"
+          value={settings.workerToken}
+          onChange={(e) => update({ workerToken: e.target.value.trim() })}
+        />
+      </Row>
+      <Row
+        label="Language hint"
+        htmlFor="whisperLang"
+        description="ISO-639-1 (e.g. ja); empty = auto-detect."
+      >
+        <Input
+          id="whisperLang"
+          type="text"
+          maxLength={2}
+          className="w-16 text-center"
+          value={settings.whisperLang}
+          onChange={(e) => {
+            const v = e.target.value.toLowerCase().replace(/[^a-z]/g, '');
+            if (v.length === 0 || v.length === 2) update({ whisperLang: v });
+          }}
+        />
+      </Row>
+      <Row
+        label="Generation speed"
+        htmlFor="generateRate"
+        description="YouTube only; video is muted while >1×. Netflix always 1×."
+      >
+        <NumberField
+          id="generateRate"
+          value={settings.generateRate}
+          min={1}
+          max={3}
+          step={0.25}
+          unit="×"
+          onCommit={(generateRate) => update({ generateRate })}
+        />
+      </Row>
+    </Group>
   );
 }
 
 function AiSection({ settings, update }: SectionProps) {
-  const [keyStatus, setKeyStatus] = useState<string | null>(null);
+  const [keyStatus, setKeyStatus] = useState<{ text: string; tone: Tone } | null>(null);
   const testKey = async (): Promise<void> => {
-    setKeyStatus('Checking…');
+    setKeyStatus({ text: 'Checking…', tone: 'muted' });
     try {
       const info = await checkKey(settings.openRouterKey);
       const spent = `${formatCost(info.usage)} used`;
-      setKeyStatus(
-        `Key works ✓ · ${info.limit === null ? spent : `${spent} of ${formatCost(info.limit)} limit`}`,
-      );
+      setKeyStatus({
+        text: `Key works ✓ · ${info.limit === null ? spent : `${spent} of ${formatCost(info.limit)} limit`}`,
+        tone: 'success',
+      });
     } catch (e) {
-      setKeyStatus(e instanceof Error ? e.message : String(e));
+      setKeyStatus({ text: e instanceof Error ? e.message : String(e), tone: 'error' });
     }
   };
   return (
-    <>
-      <h1>AI</h1>
-      <p className="lede">
-        Select subtitle text and click 💡 Explain to ask why it's said the way it is. The model sees
-        the video details and the transcript up to shortly after your selection (so it can't spoil
-        what comes later). Click 📝 in the sidebar header for a short summary of the whole video,
-        written in the subtitles' language. Requests go straight to OpenRouter with your key.
-      </p>
-      <div className="panel">
-        <div className="row">
-          <label htmlFor="openRouterKey">OpenRouter key</label>
-          <input
+    <Group>
+      <Row
+        label="OpenRouter key"
+        htmlFor="openRouterKey"
+        description={
+          keyStatus && <span className={TONE_TEXT[keyStatus.tone]}>{keyStatus.text}</span>
+        }
+      >
+        <span className="flex items-center gap-2">
+          <Input
             id="openRouterKey"
             type="password"
-            style={{ width: 320 }}
+            className="w-64"
             placeholder="sk-or-…"
             value={settings.openRouterKey}
             onChange={(e) => {
@@ -671,49 +898,47 @@ function AiSection({ settings, update }: SectionProps) {
               update({ openRouterKey: e.target.value.trim() });
             }}
           />
-          <button className="btn" onClick={() => void testKey()}>
+          <Button variant="outline" onClick={() => void testKey()}>
             Test
-          </button>
-        </div>
-        {keyStatus && (
-          <div className="row">
-            <label />
-            <span className="hint">{keyStatus}</span>
-          </div>
-        )}
-        <div className="row">
-          <label htmlFor="explainModel">Explain model</label>
-          <AiModelPicker
-            id="explainModel"
-            value={settings.explainModel}
-            onChange={(explainModel) => update({ explainModel })}
-          />
-        </div>
-        <div className="row">
-          <label htmlFor="explainLanguage">Explain in</label>
-          <input
-            id="explainLanguage"
-            type="text"
-            style={{ width: 160 }}
-            value={settings.explainLanguage}
-            onChange={(e) => update({ explainLanguage: e.target.value })}
-            onBlur={(e) => {
-              if (!e.target.value.trim()) update({ explainLanguage: DEFAULT_SETTINGS.explainLanguage });
-            }}
-          />
-          <span className="hint">questions asked in another language are answered in that one</span>
-        </div>
-        <div className="row">
-          <label htmlFor="summaryModel">Summary model</label>
-          <AiModelPicker
-            id="summaryModel"
-            value={settings.summaryModel}
-            onChange={(summaryModel) => update({ summaryModel })}
-          />
-          <span className="hint">sees the whole transcript, so a long-context model helps</span>
-        </div>
-      </div>
-    </>
+          </Button>
+        </span>
+      </Row>
+      <Row label="Explain model" htmlFor="explainModel">
+        <AiModelPicker
+          id="explainModel"
+          value={settings.explainModel}
+          onChange={(explainModel) => update({ explainModel })}
+        />
+      </Row>
+      <Row
+        label="Explain in"
+        htmlFor="explainLanguage"
+        description="Questions asked in another language are answered in that one."
+      >
+        <Input
+          id="explainLanguage"
+          type="text"
+          className="w-40"
+          value={settings.explainLanguage}
+          onChange={(e) => update({ explainLanguage: e.target.value })}
+          onBlur={(e) => {
+            if (!e.target.value.trim())
+              update({ explainLanguage: DEFAULT_SETTINGS.explainLanguage });
+          }}
+        />
+      </Row>
+      <Row
+        label="Summary model"
+        htmlFor="summaryModel"
+        description="Sees the whole transcript, so a long-context model helps."
+      >
+        <AiModelPicker
+          id="summaryModel"
+          value={settings.summaryModel}
+          onChange={(summaryModel) => update({ summaryModel })}
+        />
+      </Row>
+    </Group>
   );
 }
 
@@ -729,6 +954,7 @@ function AiModelPicker({
   onChange: (model: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
   const custom = editing || value.trim() !== '';
   const useDefault = () => {
     setEditing(false);
@@ -736,21 +962,33 @@ function AiModelPicker({
   };
   return (
     <>
-      <select
-        id={custom ? undefined : id}
+      <Select
         value={custom ? 'custom' : 'default'}
-        onChange={(e) => (e.target.value === 'custom' ? setEditing(true) : useDefault())}
+        onValueChange={(v) => (v === 'custom' ? setEditing(true) : useDefault())}
       >
-        <option value="default">Default ({DEFAULT_MODEL.label})</option>
-        <option value="custom">Custom…</option>
-      </select>
+        <SelectTrigger id={custom ? undefined : id} className="w-64">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent
+          onCloseAutoFocus={(e) => {
+            // Radix refocuses the trigger on close; "Custom…" wants the input.
+            if (editing && input.current) {
+              e.preventDefault();
+              input.current.focus();
+            }
+          }}
+        >
+          <SelectItem value="default">Default ({DEFAULT_MODEL.label})</SelectItem>
+          <SelectItem value="custom">Custom…</SelectItem>
+        </SelectContent>
+      </Select>
       {custom && (
-        <input
+        <Input
+          ref={input}
           id={id}
           type="text"
-          style={{ width: 260 }}
+          className="w-64 font-mono text-xs"
           placeholder={DEFAULT_MODEL.id}
-          autoFocus={editing}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onBlur={(e) => {
@@ -762,44 +1000,44 @@ function AiModelPicker({
   );
 }
 
+const SHORTCUTS_HINT = (
+  <>
+    A browser-level shortcut; change it at{' '}
+    <code className="font-mono text-xs text-foreground">brave://extensions/shortcuts</code> (or
+    chrome://).
+  </>
+);
+
 function HotkeysSection({ settings, update }: SectionProps) {
   return (
-    <>
-      <h1>Hotkeys</h1>
-      <p className="lede">Toggles work on both YouTube and Netflix.</p>
-      <div className="panel">
-        <div className="row">
-          <label>Toggle sidebar</label>
-          <span className="hint">
-            Alt+T — a browser-level shortcut; change it at <code>brave://extensions/shortcuts</code>
-            (or chrome://).
-          </span>
-        </div>
-        <div className="row">
-          <label>Toggle overlay</label>
-          <KeyField value={settings.overlayKey} onCommit={(overlayKey) => update({ overlayKey })} />
-        </div>
-        <div className="row">
-          <label>Mine current line</label>
-          <span className="hint">
-            Alt+M — a browser-level shortcut; change it at <code>brave://extensions/shortcuts</code>
-            (or chrome://). On Netflix, the first Alt+M of a session also unlocks audio capture.
-          </span>
-        </div>
-      </div>
-    </>
+    <Group>
+      <Row label="Toggle sidebar" description={SHORTCUTS_HINT}>
+        <Kbd keys={['Alt', 'T']} />
+      </Row>
+      <Row label="Toggle overlay" htmlFor="overlayKey">
+        <KeyField
+          id="overlayKey"
+          value={settings.overlayKey}
+          onCommit={(overlayKey) => update({ overlayKey })}
+        />
+      </Row>
+      <Row
+        label="Mine current line"
+        description={
+          <>{SHORTCUTS_HINT} On Netflix, the first Alt+M of a session also unlocks audio capture.</>
+        }
+      >
+        <Kbd keys={['Alt', 'M']} />
+      </Row>
+    </Group>
   );
 }
 
 function CaptureSection({ settings, update }: SectionProps) {
   return (
     <>
-      <h1>Capture</h1>
-      <p className="lede">Audio clip padding and screenshot quality.</p>
-      <div className="panel">
-        <h2>Audio</h2>
-        <div className="row">
-          <label htmlFor="padStartMs">Padding before line</label>
+      <Group title="Audio">
+        <Row label="Padding before line" htmlFor="padStartMs">
           <NumberField
             id="padStartMs"
             value={settings.padStartMs}
@@ -809,9 +1047,8 @@ function CaptureSection({ settings, update }: SectionProps) {
             unit="ms"
             onCommit={(padStartMs) => update({ padStartMs })}
           />
-        </div>
-        <div className="row">
-          <label htmlFor="padEndMs">Padding after line</label>
+        </Row>
+        <Row label="Padding after line" htmlFor="padEndMs">
           <NumberField
             id="padEndMs"
             value={settings.padEndMs}
@@ -821,12 +1058,10 @@ function CaptureSection({ settings, update }: SectionProps) {
             unit="ms"
             onCommit={(padEndMs) => update({ padEndMs })}
           />
-        </div>
-      </div>
-      <div className="panel">
-        <h2>Screenshot</h2>
-        <div className="row">
-          <label htmlFor="imageMaxWidth">Max width</label>
+        </Row>
+      </Group>
+      <Group title="Screenshot">
+        <Row label="Max width" htmlFor="imageMaxWidth">
           <NumberField
             id="imageMaxWidth"
             value={settings.imageMaxWidth}
@@ -836,9 +1071,8 @@ function CaptureSection({ settings, update }: SectionProps) {
             unit="px"
             onCommit={(imageMaxWidth) => update({ imageMaxWidth })}
           />
-        </div>
-        <div className="row">
-          <label htmlFor="jpegQuality">JPEG quality</label>
+        </Row>
+        <Row label="JPEG quality" htmlFor="jpegQuality">
           <NumberField
             id="jpegQuality"
             value={Math.round(settings.jpegQuality * 100)}
@@ -848,8 +1082,8 @@ function CaptureSection({ settings, update }: SectionProps) {
             unit="%"
             onCommit={(pct) => update({ jpegQuality: pct / 100 })}
           />
-        </div>
-      </div>
+        </Row>
+      </Group>
     </>
   );
 }

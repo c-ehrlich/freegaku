@@ -98,10 +98,28 @@ export default defineWebExtConfig({
 `npx @puppeteer/browsers install chrome@stable`.) Loading the production build
 unpacked into your everyday browser works fine without any of this.
 
+### UI lab
+
+`apps/extension/lab/` renders the real in-page UI and options page with mocked
+data (a real YouTube transcript window, canned AI answers, fake AnkiConnect),
+so you can look at every state without Anki, a key, or a live video:
+
+```sh
+cd apps/extension
+pnpm lab                         # browse http://localhost:5199/?scene=explain&theme=light
+pnpm lab:shoot                   # screenshot every scene → lab/shots/base/
+pnpm lab:shoot --style=<name>    # try a variant: lab/directions/<name>.css overriding the tokens
+pnpm lab:gallery                 # lab/shots/index.html, all sets side by side
+pnpm build && pnpm lab:real "https://www.youtube.com/watch?v=…"   # real extension on a real page
+```
+
+Scenes are listed at the top of `lab/main.ts` and `lab/shoot.ts`.
+
 ## Layout
 
 ```
 apps/extension/      WXT MV3 extension (content scripts, background, options UI)
+apps/extension/lab/  UI lab: mocked scenes + Playwright screenshots
 packages/subtitles/  Pure-TS subtitle parsers (YouTube srv3, Netflix WebVTT)
 docs/netflix.md      How the Netflix integration works + fragility notes
 SPEC.md              Full product/architecture spec
