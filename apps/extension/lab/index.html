@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Freegaku lab</title>
+    <link rel="stylesheet" href="./host.css" />
+  </head>
+  <body>
+    <!-- A YouTube watch page reduced to the parts the sidebar sits next to. -->
+    <div id="yt" hidden>
+      <header class="yt-masthead">
+        <div class="yt-logo"><span class="yt-play"></span>YouTube</div>
+        <div class="yt-search">Search</div>
+        <div class="yt-avatar"></div>
+      </header>
+      <ytd-watch-flexy>
+        <div id="primary">
+          <div id="movie_player" class="yt-player"><div class="yt-frame"></div></div>
+          <h1 class="yt-title"></h1>
+          <div class="yt-channel"><span class="yt-channel-avatar"></span><b></b></div>
+        </div>
+        <div id="secondary">
+          <div class="yt-chips"><span class="on">All</span><span>From this channel</span><span>Related</span></div>
+          <div class="yt-rec"><span></span><i></i></div>
+          <div class="yt-rec"><span></span><i></i></div>
+          <div class="yt-rec"><span></span><i></i></div>
+        </div>
+      </ytd-watch-flexy>
+    </div>
+
+    <!-- Netflix: a full-bleed player the sidebar narrows. -->
+    <div id="nf" hidden>
+      <div class="watch-video--player-view"><div id="nf-player" class="yt-player nf-player"><div class="yt-frame"></div></div></div>
+    </div>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

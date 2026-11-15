@@ -3,59 +3,47 @@ import type { AssistantStream } from './assistant-client';
 import { streamAssistant } from './assistant-client';
 import { guardFocus, isolateKeys } from './focus-guard';
 import { renderMarkdown } from './markdown';
+import { icon, setButtonContent } from './ui/icons';
+import type { IconName } from './ui/icons';
 import type { AssistantPortClientMessage, AssistantResult, AssistantTurn } from './messages';
 
 // Docked at the bottom of the sidebar like the capture editor, with the same
 // visual language. Plain DOM (no shadow root) so Yomitan can scan answers.
 const CSS = `
 #m2-sidebar .m2-assistant-panel {
-  --m2-assistant-accent: #3ea6ff;
-  --m2-assistant-ink: #0f0f0f;
-  --m2-assistant-muted: #606060;
-  --m2-assistant-panel: rgba(255, 255, 255, 0.86);
-  --m2-assistant-soft: rgba(15, 15, 15, 0.06);
   display: none;
   flex: none;
   padding: 12px;
-  border-top: 1px solid rgba(128, 128, 128, 0.28);
-  background: var(--m2-assistant-panel);
-  color: var(--m2-assistant-ink);
-  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.06);
-  backdrop-filter: blur(14px);
-}
-html[dark] #m2-sidebar .m2-assistant-panel,
-#m2-sidebar.m2-nf .m2-assistant-panel {
-  --m2-assistant-ink: #f1f1f1;
-  --m2-assistant-muted: #aaa;
-  --m2-assistant-panel: rgba(20, 20, 20, 0.94);
-  --m2-assistant-soft: rgba(255, 255, 255, 0.07);
-  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.24);
+  border-top: 1px solid var(--m2-border);
+  background: var(--m2-bg);
 }
 #m2-sidebar .m2-assistant-panel.m2-open {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  animation: m2-assistant-in 140ms ease-out;
+  animation: m2-panel-in 140ms ease-out;
 }
-@keyframes m2-assistant-in {
+@keyframes m2-panel-in {
   from { opacity: 0; transform: translateY(5px); }
   to { opacity: 1; transform: translateY(0); }
 }
 #m2-sidebar .m2-assistant-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
+  margin: -2px -4px 0 0;
+}
+#m2-sidebar .m2-assistant-heading > .m2-icon {
+  color: var(--m2-primary);
 }
 #m2-sidebar .m2-assistant-title {
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.01em;
 }
 #m2-sidebar .m2-assistant-lines,
 #m2-sidebar .m2-assistant-cost {
-  color: var(--m2-assistant-muted);
-  font-size: 11px;
+  color: var(--m2-muted-fg);
+  font-size: 11.5px;
   font-variant-numeric: tabular-nums;
 }
 #m2-sidebar .m2-assistant-heading .m2-assistant-lines {
@@ -63,12 +51,13 @@ html[dark] #m2-sidebar .m2-assistant-panel,
 }
 #m2-sidebar .m2-assistant-quote {
   margin: 0;
-  padding: 6px 9px;
-  border-left: 3px solid var(--m2-assistant-accent);
-  border-radius: 4px;
-  background: var(--m2-assistant-soft);
-  font-size: 13px;
-  line-height: 1.45;
+  padding: 7px 10px;
+  border-left: 3px solid var(--m2-primary);
+  border-radius: 4px var(--m2-radius-sm) var(--m2-radius-sm) 4px;
+  background: var(--m2-muted);
+  font-family: var(--m2-font-cue);
+  font-size: 14px;
+  line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -80,19 +69,25 @@ html[dark] #m2-sidebar .m2-assistant-panel,
 #m2-sidebar .m2-assistant-thread {
   height: min(42vh, 380px);
   overflow-y: auto;
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 13.5px;
+  line-height: 1.6;
   user-select: text;
   -webkit-user-select: text;
+  scrollbar-width: thin;
+  scrollbar-color: var(--m2-input) transparent;
 }
 #m2-sidebar .m2-assistant-thread:empty {
   display: none;
 }
 #m2-sidebar .m2-assistant-question {
-  margin: 10px 0 4px;
-  color: var(--m2-assistant-muted);
-  font-size: 12px;
-  font-weight: 600;
+  width: fit-content;
+  max-width: 85%;
+  margin: 14px 0 10px auto;
+  padding: 6px 11px;
+  border-radius: var(--m2-radius-sm);
+  background: var(--m2-primary-soft);
+  font-size: 13px;
+  font-weight: 500;
   white-space: pre-wrap;
 }
 #m2-sidebar .m2-assistant-question:first-child {
@@ -102,134 +97,120 @@ html[dark] #m2-sidebar .m2-assistant-panel,
 #m2-sidebar .m2-assistant-answer ul,
 #m2-sidebar .m2-assistant-answer ol,
 #m2-sidebar .m2-assistant-answer h4 {
-  margin: 0 0 7px;
+  margin: 0 0 8px;
 }
 #m2-sidebar .m2-assistant-answer ul,
 #m2-sidebar .m2-assistant-answer ol {
-  padding-left: 20px;
+  padding-left: 18px;
+}
+#m2-sidebar .m2-assistant-answer li {
+  margin-bottom: 3px;
+}
+#m2-sidebar .m2-assistant-answer li::marker {
+  color: var(--m2-muted-fg);
 }
 #m2-sidebar .m2-assistant-answer h4 {
-  font-size: 13px;
+  margin-top: 12px;
+  font-size: var(--m2-label-size);
+  text-transform: var(--m2-label-transform);
+  letter-spacing: var(--m2-label-tracking);
+  color: var(--m2-muted-fg);
+}
+#m2-sidebar .m2-assistant-answer h4:first-child {
+  margin-top: 0;
+}
+#m2-sidebar .m2-assistant-answer strong {
+  font-weight: 600;
 }
 #m2-sidebar .m2-assistant-answer code {
   padding: 1px 4px;
   border-radius: 4px;
-  background: var(--m2-assistant-soft);
+  background: var(--m2-muted);
+  font-family: var(--m2-font-mono);
   font-size: 12px;
 }
 #m2-sidebar .m2-assistant-answer.m2-pending::after {
-  content: '▍';
-  color: var(--m2-assistant-accent);
-  animation: m2-assistant-blink 1s steps(2) infinite;
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: var(--m2-primary);
+  vertical-align: middle;
+  animation: m2-assistant-pulse 1s ease-in-out infinite;
 }
-@keyframes m2-assistant-blink {
-  50% { opacity: 0; }
+@keyframes m2-assistant-pulse {
+  50% { opacity: 0.25; transform: scale(0.8); }
 }
 #m2-sidebar .m2-assistant-error {
-  font-size: 12px;
-  color: #e5484d;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--m2-radius-sm);
+  background: color-mix(in srgb, var(--m2-danger) 12%, transparent);
+  color: var(--m2-danger);
+  font-size: 12.5px;
 }
-#m2-sidebar .m2-assistant-error button {
-  margin-left: 6px;
-  border: none;
-  background: none;
-  color: var(--m2-assistant-accent);
-  font: inherit;
-  cursor: pointer;
-  padding: 0;
+#m2-sidebar .m2-assistant-panel .m2-assistant-error .m2-btn {
+  height: 24px;
+  margin-left: auto;
+  padding: 0 8px;
+  color: inherit;
 }
 #m2-sidebar .m2-assistant-input {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 52px;
+  min-height: 40px;
   max-height: 140px;
-  resize: vertical;
-  padding: 7px 9px;
-  border: 1px solid rgba(128, 128, 128, 0.35);
-  border-radius: 7px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.4;
-}
-#m2-sidebar .m2-assistant-input:focus {
-  outline: none;
-  border-color: var(--m2-assistant-accent);
+  resize: none;
+  field-sizing: content;
 }
 #m2-sidebar .m2-assistant-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 #m2-sidebar .m2-assistant-actions .m2-assistant-spacer {
   flex: 1;
 }
-#m2-sidebar .m2-assistant-button,
-#m2-sidebar .m2-assistant-close {
-  border: none;
-  cursor: pointer;
-  font-family: inherit;
-}
-#m2-sidebar .m2-assistant-button {
-  padding: 7px 11px;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--m2-assistant-muted);
-  font-size: 12px;
-  font-weight: 500;
-}
-#m2-sidebar .m2-assistant-button:hover:not(:disabled) {
-  background: rgba(128, 128, 128, 0.14);
-}
-#m2-sidebar .m2-assistant-button:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-#m2-sidebar .m2-assistant-button.m2-primary {
-  background: var(--m2-assistant-accent);
-  color: #fff;
-}
-#m2-sidebar .m2-assistant-button.m2-primary:hover:not(:disabled) {
-  background: #2d96eb;
-}
-#m2-sidebar .m2-assistant-close {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--m2-assistant-muted);
-  font-size: 18px;
-  line-height: 1;
-  padding: 0;
-}
-#m2-sidebar .m2-assistant-close:hover {
-  background: rgba(128, 128, 128, 0.14);
+#m2-sidebar .m2-assistant-cost {
+  margin-left: 4px;
 }
 #m2-sidebar .m2-assistant-notice {
-  padding: 7px 10px;
-  border: 1px solid rgba(229, 140, 0, 0.55);
-  border-radius: 7px;
-  background: rgba(255, 170, 0, 0.14);
-  font-size: 12px;
-  font-weight: 600;
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--m2-radius-sm);
+  background: var(--m2-warn-soft);
+  color: var(--m2-fg);
+  font-size: 12.5px;
   line-height: 1.45;
 }
-#m2-sidebar .m2-assistant-choice p {
-  margin: 0 0 8px;
-  font-size: 13px;
-  line-height: 1.5;
+#m2-sidebar .m2-assistant-notice .m2-icon {
+  margin-top: 1px;
+  color: var(--m2-warn);
 }
-#m2-sidebar .m2-assistant-panel [hidden] {
-  display: none;
+#m2-sidebar .m2-assistant-choice p {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+#m2-sidebar .m2-assistant-choice .m2-assistant-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+#m2-sidebar .m2-assistant-panel .m2-btn {
+  height: 32px;
+  font-size: 13px;
 }
 `;
 
 type Phase = 'asking' | 'streaming' | 'answered';
 
 export interface AssistantPanelOptions {
-  /** Heading, e.g. '💡 Explain'. */
+  /** Heading, e.g. 'Explain'. */
   title: string;
+  icon?: IconName;
   /** Muted text next to the heading. */
   meta?: string;
   /** Quoted text under the heading (the selection being explained). */
@@ -256,6 +237,7 @@ export interface AssistantPanelOptions {
 export class AssistantPanel {
   readonly host: HTMLElement;
   private readonly titleEl: HTMLElement;
+  private iconEl: Element;
   private readonly metaEl: HTMLElement;
   private readonly quoteEl: HTMLElement;
   private readonly noticeEl: HTMLElement;
@@ -281,9 +263,11 @@ export class AssistantPanel {
     style.textContent = CSS;
 
     const heading = element('div', 'm2-assistant-heading');
-    const close = button('m2-assistant-close', '×', 'Close');
+    const close = button('m2-icon-btn m2-assistant-close', '', 'Close');
+    close.append(icon('x'));
     close.addEventListener('click', () => this.cancel());
     heading.append(
+      (this.iconEl = element('span')),
       (this.titleEl = element('span', 'm2-assistant-title')),
       (this.metaEl = element('span', 'm2-assistant-lines')),
       close,
@@ -296,25 +280,27 @@ export class AssistantPanel {
     this.errorEl = element('div', 'm2-assistant-error');
     this.errorEl.hidden = true;
 
-    this.inputEl = element('textarea', 'm2-assistant-input');
-    this.inputEl.rows = 2;
+    this.inputEl = element('textarea', 'm2-textarea m2-assistant-input');
+    this.inputEl.rows = 1;
     this.inputEl.addEventListener('input', () => this.renderActions());
 
     this.actionsEl = element('div', 'm2-assistant-actions');
-    this.copyButton = button('m2-assistant-button', 'Copy', 'Copy the latest answer');
+    this.copyButton = button('m2-icon-btn', '', 'Copy the latest answer');
+    setButtonContent(this.copyButton, 'copy');
     this.copyButton.addEventListener('click', () => void this.copyLatest());
     this.costEl = element('span', 'm2-assistant-cost');
-    this.regenerateButton = button('m2-assistant-button', '↻ Regenerate', 'Write it again from scratch');
+    this.regenerateButton = button('m2-icon-btn', '', 'Regenerate: write it again from scratch');
+    setButtonContent(this.regenerateButton, 'rotate');
     this.regenerateButton.addEventListener('click', () => this.regenerate());
-    this.secondaryButton = button('m2-assistant-button', 'Cancel');
+    this.secondaryButton = button('m2-btn m2-muted', 'Cancel');
     this.secondaryButton.addEventListener('click', () => this.cancel());
-    this.primaryButton = button('m2-assistant-button m2-primary', '');
+    this.primaryButton = button('m2-btn m2-primary', '');
     this.primaryButton.addEventListener('click', () => this.onPrimary());
     this.actionsEl.append(
       this.copyButton,
+      this.regenerateButton,
       this.costEl,
       element('span', 'm2-assistant-spacer'),
-      this.regenerateButton,
       this.secondaryButton,
       this.primaryButton,
     );
@@ -359,10 +345,13 @@ export class AssistantPanel {
     this.totalCost = options.totalCost ?? null;
     this.host.setAttribute('aria-label', options.title);
     this.titleEl.textContent = options.title;
+    const nextIcon = options.icon ? icon(options.icon) : element('span');
+    this.iconEl.replaceWith(nextIcon);
+    this.iconEl = nextIcon;
     this.metaEl.textContent = options.meta ?? '';
     this.quoteEl.textContent = options.quote ?? '';
     this.quoteEl.hidden = !options.quote;
-    this.noticeEl.textContent = options.notice ?? '';
+    this.noticeEl.replaceChildren(icon('alert'), element('span', '', options.notice ?? ''));
     this.noticeEl.hidden = !options.notice;
     this.renderChoice(options.choice);
     this.threadEl.replaceChildren();
@@ -484,7 +473,7 @@ export class AssistantPanel {
     const buttons = element('div', 'm2-assistant-actions');
     buttons.append(element('span', 'm2-assistant-spacer'));
     for (const option of choice.options) {
-      const b = button(`m2-assistant-button${option.primary ? ' m2-primary' : ''}`, option.label);
+      const b = button(`m2-btn ${option.primary ? 'm2-primary' : 'm2-muted'}`, option.label);
       b.addEventListener('click', () => option.pick());
       buttons.append(b);
     }
@@ -512,12 +501,9 @@ export class AssistantPanel {
     this.regenerateButton.hidden = !options?.regenerate || !answered || this.phase === 'streaming';
     this.secondaryButton.textContent = answered ? 'Close' : 'Cancel';
     this.secondaryButton.hidden = this.phase === 'streaming';
-    this.primaryButton.textContent =
-      this.phase === 'streaming'
-        ? 'Stop'
-        : this.phase === 'answered'
-          ? 'Ask'
-          : (options?.ask?.label ?? 'Retry');
+    if (this.phase === 'streaming') setButtonContent(this.primaryButton, 'stop', 'Stop');
+    else if (this.phase === 'answered') setButtonContent(this.primaryButton, 'arrowUp', 'Ask');
+    else setButtonContent(this.primaryButton, null, options?.ask?.label ?? 'Retry');
     this.primaryButton.disabled = this.phase === 'answered' && !this.inputEl.value.trim();
   }
 
@@ -525,9 +511,9 @@ export class AssistantPanel {
     this.errorEl.hidden = message === null;
     this.errorEl.replaceChildren();
     if (message === null) return;
-    this.errorEl.append(message);
+    this.errorEl.append(icon('circleAlert'), message);
     if (withSettings) {
-      const open = button('', 'Open settings');
+      const open = button('m2-btn m2-outline', 'Open settings');
       open.addEventListener('click', () => {
         void browser.runtime.sendMessage({ type: 'm2-open-settings' });
       });
@@ -540,11 +526,16 @@ export class AssistantPanel {
     if (!latest) return;
     try {
       await navigator.clipboard.writeText(latest.answer);
-      this.copyButton.textContent = 'Copied ✓';
+      setButtonContent(this.copyButton, 'check');
+      this.copyButton.title = 'Copied';
     } catch {
-      this.copyButton.textContent = 'Copy failed';
+      setButtonContent(this.copyButton, 'circleAlert');
+      this.copyButton.title = 'Copy failed';
     }
-    setTimeout(() => (this.copyButton.textContent = 'Copy'), 1500);
+    setTimeout(() => {
+      setButtonContent(this.copyButton, 'copy');
+      this.copyButton.title = 'Copy the latest answer';
+    }, 1500);
   }
 }
 

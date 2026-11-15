@@ -25,7 +25,7 @@ _Avoid_: Highlight, span
 ### Mining
 
 **Capture editor**:
-The panel opened by "✂ Adjust & add" for tuning a capture's audio range and screenshot frame before it goes into Anki.
+The panel opened by "Adjust & add" for tuning a capture's audio range and screenshot frame before it goes into Anki.
 _Avoid_: Anki panel, adjust panel
 
 ### Explaining
@@ -35,7 +35,7 @@ An LLM-written answer about why a selection is said the way it is, grounded in t
 _Avoid_: Translation, definition, gloss
 
 **Explain panel**:
-The panel opened by "💡 Explain", where the learner can optionally say what they want explained, then read the explanation and ask follow-ups.
+The panel opened by "Explain", where the learner can optionally say what they want explained, then read the explanation and ask follow-ups.
 _Avoid_: Explain popover, chat
 
 **Follow-up**:
@@ -48,5 +48,5 @@ A short LLM-written digest of the whole transcript, in the transcript's language
 _Avoid_: Recap, synopsis, TL;DR
 
 **Summary panel**:
-The panel opened by the 📝 header button, showing the summary and taking follow-ups.
+The panel opened by the sparkle header button, showing the summary and taking follow-ups.
 _Avoid_: Summary popover, chat

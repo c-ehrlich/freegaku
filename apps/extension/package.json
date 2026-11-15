@@ -9,20 +9,34 @@
     "test": "vitest run",
     "zip": "wxt zip",
     "typecheck": "tsc --noEmit",
-    "postinstall": "wxt prepare"
+    "postinstall": "wxt prepare",
+    "lab": "vite --config lab/vite.config.ts",
+    "lab:shoot": "node lab/shoot.ts",
+    "lab:real": "node lab/real.ts",
+    "lab:gallery": "node lab/gallery.ts"
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",
     "@migaku2/subtitles": "workspace:*",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.73.0",
+    "radix-ui": "^1.8.1",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
     "@types/chrome": "^0.2.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5",
     "@wxt-dev/module-react": "^1.2.2",
+    "playwright": "1.65.1",
+    "tailwindcss": "^4.3.5",
     "typescript": "^5.8.0",
+    "vite": "7.3.6",
     "vitest": "^3.0.0",
     "wxt": "^0.20.27"
   }
